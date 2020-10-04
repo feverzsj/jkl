@@ -1,0 +1,60 @@
+﻿{
+    "configurations": [
+        {
+            "name": "x64-Debug",
+            "generator": "Ninja",
+            "configurationType": "Debug",
+            "inheritEnvironments": [ "msvc_x64_x64" ],
+            "buildRoot": "${projectDir}\\out\\build\\${name}",
+            "installRoot": "${projectDir}\\out\\install\\${name}",
+            "cmakeCommandArgs": "",
+            "buildCommandArgs": "",
+            "ctestCommandArgs": "",
+            "variables": []
+        },
+        {
+            "name": "Linux-GCC-Debug",
+            "generator": "Ninja",
+            "configurationType": "Debug",
+            "cmakeExecutable": "cmake",
+            "remoteCopySourcesExclusionList": [ ".vs", ".git", "out" ],
+            "cmakeCommandArgs": "",
+            "buildCommandArgs": "",
+            "ctestCommandArgs": "",
+            "cmakeToolchain": "/mnt/hgfs/E/lib/vcpkg-linux/scripts/buildsystems/vcpkg.cmake",
+            "inheritEnvironments": [ "linux_x64" ],
+            "remoteMachineName": "402912575;192.168.159.129 (username=feverzsj, port=22, authentication=Password)",
+            "remoteCMakeListsRoot": "$HOME/.vs/${projectDirName}/${workspaceHash}/src",
+            "remoteBuildRoot": "$HOME/.vs/${projectDirName}/${workspaceHash}/out/build/${name}",
+            "remoteInstallRoot": "$HOME/.vs/${projectDirName}/${workspaceHash}/out/install/${name}",
+            "remoteCopySources": true,
+            "rsyncCommandArgs": "-t --delete --delete-excluded",
+            "remoteCopyBuildOutput": false,
+            "remoteCopySourcesMethod": "rsync",
+            "addressSanitizerRuntimeFlags": "detect_leaks=0",
+            "variables": []
+        },
+        {
+            "name": "Linux-Clang-Debug",
+            "generator": "Ninja",
+            "configurationType": "Debug",
+            "cmakeExecutable": "cmake",
+            "remoteCopySourcesExclusionList": [ ".vs", ".git", "out" ],
+            "cmakeCommandArgs": "-DVCPKG_TARGET_TRIPLET=x64-linux-llvm",
+            "buildCommandArgs": "",
+            "ctestCommandArgs": "",
+            "cmakeToolchain": "/mnt/hgfs/E/lib/vcpkg-llvm/scripts/buildsystems/vcpkg.cmake",
+            "inheritEnvironments": [ "linux_clang_x64" ],
+            "remoteMachineName": "${defaultRemoteMachineName}",
+            "remoteCMakeListsRoot": "$HOME/.vs/${projectDirName}/${workspaceHash}/src",
+            "remoteBuildRoot": "$HOME/.vs/${projectDirName}/${workspaceHash}/out/build/${name}",
+            "remoteInstallRoot": "$HOME/.vs/${projectDirName}/${workspaceHash}/out/install/${name}",
+            "remoteCopySources": true,
+            "rsyncCommandArgs": "-t --delete --delete-excluded",
+            "remoteCopyBuildOutput": false,
+            "remoteCopySourcesMethod": "rsync",
+            "addressSanitizerRuntimeFlags": "detect_leaks=0",
+            "variables": []
+        }
+    ]
+}

@@ -1,0 +1,7 @@
+fork vcpkg add jkl in, and modify other packags
+
+travis or AppVeyor CI
+    build
+    ctest with catch2 and memcheck(valgrind, purify) and coverage
+
+more sub targets

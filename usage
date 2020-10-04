@@ -1,0 +1,7 @@
+when used as a vcpkg package:
+    find_package(jkl REQUIRED 0.1.0)
+when used as standalone package
+    add_subdirectory(path_to_dir_containing_jkl's_CMakeLists.txt EXCLUDE_FROM_ALL)
+
+then
+    target_link_libraries(your_target PRIVATE jkl::jkl)
