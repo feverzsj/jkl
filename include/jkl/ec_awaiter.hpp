@@ -28,12 +28,11 @@ struct ec_awaiter
 
     [[no_unique_address]] InitOp _initOp;
     [[no_unique_address]] CompOp _compOp; // only called if no error
-    [[no_unique_address]] not_null_if_t<  has_expiryDur    , asio::steady_timer                                      > _timer;
-    [[no_unique_address]] not_null_if_t<! std::is_void_v<T>, std::conditional_t<PreAssign, T, std::optional<T>>      > _t;
+    JKL_DEF_MEMBER_IF(  has_expiryDur    , asio::steady_timer                                , _timer );
+    JKL_DEF_MEMBER_IF(! std::is_void_v<T>, std::conditional_t<PreAssign, T, std::optional<T>>, _t     );
+    JKL_DEF_MEMBER_IF(  EnableStop       , optional_stop_callback<>                          , _stopCb);
     // NOTE: stop_callback assures when the assigned callback is called, it will not be destructed until the callback returns.
     //       so all the members defined before stop_callback will still be alive inside the assigned callback.
-    [[no_unique_address]] not_null_if_t<  EnableStop       , std::optional<std::stop_callback<std::function<void()>>>> _stopCb;
-
 
     ec_awaiter(AsyncObj& ao, auto&& i, auto&& c, Dur const& expiryDur)
         : _ao{ao}, _initOp{JKL_FORWARD(i)}, _compOp{JKL_FORWARD(c)}, _timer{get_executor(ao), expiryDur}

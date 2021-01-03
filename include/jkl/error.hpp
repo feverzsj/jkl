@@ -28,7 +28,8 @@ enum class gerrc
 {
     failed = 1,
     not_found,
-    timeout
+    timeout,
+    file_exists
 };
 
 class gerrc_category : public aerror_category
@@ -46,6 +47,8 @@ public:
                 return "resource not found";
             case static_cast<int>(gerrc::timeout) :
                 return "operation timeout";
+            case static_cast<int>(gerrc::file_exists) :
+                return "file exists";
         }
 
         return "undefined";

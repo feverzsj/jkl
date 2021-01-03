@@ -1,6 +1,7 @@
 #pragma once
 
 #include <jkl/config.hpp>
+#include <jkl/params.hpp>
 #include <jkl/util/str.hpp>
 #include <jkl/uri/comp.hpp>
 #include <jkl/uri/reader.hpp>
@@ -148,6 +149,7 @@ aresult<B> uri_remove_dot_segments_ret(_uri_path_ auto const& path)
 }
 
 // return where it ends
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 inline aresult<char*> uri_remove_dot_segments_inplace(_uri_path_ auto const& path)
 {
     return uri_remove_dot_segments_append<as_is_codec, true>(path.str().data(), path);
@@ -158,6 +160,7 @@ inline aresult<char*> uri_remove_dot_segments_inplace(char* beg, char* end)
     return uri_remove_dot_segments_append<as_is_codec, true>(beg, uri_path(string_view{beg, end}));
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 aresult<> uri_remove_dot_segments_inplace(_resizable_char_buf_ auto& inOut)
 {
     return uri_remove_dot_segments_assign<as_is_codec, true>(inOut, uri_path(inOut));
@@ -225,7 +228,8 @@ aresult<B> uri_resolve_path_ret(_uri_path_ auto const& base, _uri_path_ auto con
 template<uri_codec_e DestCodec, _uri_uri_ B, _uri_uri_ R>
 aresult<char*> uri_resolve_append(char* tar, B const& base, R const& ref, auto... p)
 {
-    constexpr bool skipFrag = make_params(p..., p_keep_frag)(t_skip_frag);
+    auto params = make_params(p..., p_keep_frag);
+    constexpr bool skipFrag = params(t_skip_frag);
 
     auto rscheme     = uri_scheme          <R::codec>(string_view{});
     auto rauth       = uri_ss_authority    <R::codec>(string_view{});
@@ -243,7 +247,7 @@ aresult<char*> uri_resolve_append(char* tar, B const& base, R const& ref, auto..
         JKL_TRY(tar, rquery.template write<DestCodec>(tar));
 
         if constexpr(skipFrag)
-            return no_err;
+            return tar;
         else
             return rfrag.template write<DestCodec>(tar);
     }
@@ -290,7 +294,7 @@ aresult<char*> uri_resolve_append(char* tar, B const& base, R const& ref, auto..
     }
 
     if constexpr(skipFrag)
-        return no_err;
+        return tar;
     else
         return rfrag.template write<DestCodec>(tar);
 }

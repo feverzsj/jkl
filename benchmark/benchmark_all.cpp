@@ -1,0 +1,5 @@
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#define ANKERL_NANOBENCH_IMPLEMENT
+
+#include "pb.hpp"
+

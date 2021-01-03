@@ -48,7 +48,7 @@ inline constexpr mime_info g_mime_infos[] =
     {"video/ogg"                     , "ogv,ogm"            },
 
     /// secondary
-    
+
     {"image/x-icon"                           , "ico"           }, // Must precede image/vnd.microsoft.icon
     {"application/epub+zip"                   , "epub"          },
     {"application/font-woff"                  , "woff"          },
@@ -89,11 +89,11 @@ inline constexpr mime_info g_mime_infos[] =
 
 
 
-inline string_view* wellknown_mime_for_ext(string_view ext) noexcept
+inline string_view const* wellknown_mime_for_ext(string_view ext) noexcept
 {
     if(ext.size() > 65536)
         return nullptr; // Avoids crash when unable to handle a long file path. See crbug.com/48733.
-    
+
     if(ext.find('\0') != npos)
         return nullptr; // Reject a string which contains null character.
 
@@ -101,14 +101,14 @@ inline string_view* wellknown_mime_for_ext(string_view ext) noexcept
         ext.remove_prefix(1);
     if(ext.empty())
         return nullptr;
-    
+
     for(mime_info const& info : g_mime_infos)
     {
         string_view const& exts = info.exts;
 
-        for(auto b = 0;;)
+        for(size_t b = 0;;)
         {
-            auto e = exts.find(',', b);
+            size_t e = exts.find(',', b);
 
             if(ascii_iequal(exts.substr(b, e - b), ext))
                 return & info.mime;
@@ -132,7 +132,7 @@ string_view preferred_ext_for_mime(string_view const& mime, string_view const& d
     for(mime_info const& info : g_mime_infos)
     {
         if(info.mime == mime)
-            return info.mime.substr(0, info.mime.find(','));
+            return info.exts.substr(0, info.exts.find(','));
     }
 
     return def;

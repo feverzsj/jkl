@@ -1,9 +1,12 @@
 find_package(doctest CONFIG REQUIRED)
 
-add_executable(test1 test1.cpp)
+add_executable(test_all test_all.cpp)
 
-target_compile_options(test1 PRIVATE ${_STRICT_COMPILE_OPTIONS})
-target_link_libraries(test1 PRIVATE jkl doctest::doctest)
-#set_target_properties(test1 PROPERTIES LINK_FLAGS "-stdlib=libc++ -lc++abi")
+target_include_directories(test_all PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-add_test(NAME test1 COMMAND test1)
+target_compile_options(test_all PRIVATE ${_STRICT_COMPILE_OPTIONS})
+target_link_libraries(test_all PRIVATE jkl doctest::doctest)
+#set_target_properties(test_all PROPERTIES LINK_FLAGS "-stdlib=libc++ -lc++abi")
+
+
+add_test(NAME test_all COMMAND test_all)

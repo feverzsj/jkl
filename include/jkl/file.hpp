@@ -20,6 +20,7 @@ class synced_file_wrapper : public Impl
 public:
     explicit operator bool() const noexcept { return Impl::is_open(); }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     aresult<> open(_char_str_ auto const& path, file_mode mode)
     {
         aerror_code ec;
@@ -58,7 +59,8 @@ public:
     // read at most n _trivially_copyable_ object to d.
     // returns the count of object actaully read; if this number differs from maxCnt,
     // either a reading error occurred or the end-of-file was reached.
-    aresult<size_t> read(_trivially_copyable_ auto* d, size_type n) const
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    aresult<size_t> read(_trivially_copyable_ auto* d, size_t n) const
     {
         aerror_code ec;
         size_t nByte = Impl::read(d, n * sizeof(d), ec);
@@ -67,20 +69,22 @@ public:
         return ec;
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     aresult<size_t> read(_trivially_copyable_buf_ auto&& d) const
     {
         JKL_TRY(size_t n, read(buf_data(d), buf_size(d)));
 
         if constexpr(_resizable_buf_<decltype(d)>)
             resize_buf(d, n);
-        
+
         return n;
     }
 
     // write n _trivially_copyable_ object from d to file.
     // returns the count of object successfully written.
     // If this number differs from n, a writing error prevented the function from completing.
-    aresult<size_t> write(_trivially_copyable_ auto* d, size_type n)
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    aresult<size_t> write(_trivially_copyable_ auto* d, size_t n)
     {
         aerror_code ec;
         size_t nByte = Impl::write(d, n * sizeof(d), ec);
@@ -89,11 +93,13 @@ public:
         return ec;
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     aresult<size_t> write(_trivially_copyable_buf_ auto const& d)
     {
         return write(buf_data(d), buf_size(d));
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     aresult<size_t> read_left_bytes(_resizable_byte_buf_ auto& d)
     {
         JKL_TRY(size_t n, size());

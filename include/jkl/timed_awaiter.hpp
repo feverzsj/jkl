@@ -22,8 +22,7 @@ struct timed_awaiter
     aerror_code _ec;
     std::coroutine_handle<> _coro;
 
-    [[no_unique_address]] not_null_if_t<EnableStop,
-        std::optional<std::stop_callback<std::function<void()>>>> _stopCb;
+    JKL_DEF_MEMBER_IF(EnableStop, optional_stop_callback<>>, _stopCb);
 
     template<class A, class ExC>
     timed_awaiter(A&& a, ExC&& exc, asio::steady_timer::duration const& dur)

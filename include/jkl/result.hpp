@@ -3,6 +3,7 @@
 #include <jkl/config.hpp>
 #include <jkl/error.hpp>
 #include <jkl/util/concepts.hpp>
+#include <memory>
 
 
 namespace jkl{
@@ -48,7 +49,7 @@ namespace jkl{
 // }
 
 struct no_err_t {};
-constexpr no_err_t no_err;
+inline constexpr no_err_t no_err;
 
 
 template<class V = void>
@@ -61,8 +62,9 @@ class aresult<void>
     aerror_code _ec;
 
 public:
-    aresult() = default;
+    constexpr aresult() = default;
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     constexpr aresult(_ec_or_ecenum_ auto const& e) noexcept
         : _ec{e}
     {}
@@ -91,14 +93,14 @@ class aresult : public aresult<void>
 public:
     using value_type = V;
 
-    aresult() = default;
+    constexpr aresult() = default;
 
-    ~aresult()
+    constexpr ~aresult()
     {
         if constexpr(! std::is_trivially_destructible_v<V>)
         {
             if(has_value())
-                _v.~V();
+                std::destroy_at(std::addressof(_v)); 
         }
     }
 
@@ -107,7 +109,7 @@ public:
         : base(r)
     {
         if(r.has_value())
-            new (&_v) V(r._v);
+            std::construct_at(std::addressof(_v), r._v);
     }
 
     constexpr aresult& operator=(aresult const& r) noexcept(std::is_nothrow_copy_assignable_v<V>)
@@ -124,7 +126,7 @@ public:
         : base{std::move(r)}
     {
         if(r.has_value())
-            new (&_v) V{std::move(r._v)};
+            std::construct_at(std::addressof(_v), std::move(r._v));
     }
 
     constexpr aresult& operator=(aresult&& r) noexcept(std::is_nothrow_move_assignable_v<V>)
@@ -136,12 +138,13 @@ public:
         return *this;
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     constexpr aresult(_ec_or_ecenum_ auto const& e) /*noexcept*/
         : base{e}
     {
         BOOST_ASSERT(base::has_error());
 
-        if(has_value())
+        if(! base::has_error())
             throw std::runtime_error("aresult must either contain a error or a value.");
     }
 
@@ -156,15 +159,7 @@ public:
         : base{e}
     {
         if(has_value())
-            new (&_v) V(std::forward<U0>(u0), std::forward<U>(u)...);
-    }
-
-    constexpr aresult(no_err_t) noexcept {}
-
-    template<class U0, class... U>
-    constexpr aresult(no_err_t, U0&& u0, U&&... u) noexcept(std::is_nothrow_constructible_v<V, U0&&, U&&...>)
-    {
-        new (&_v) V(std::forward<U0>(u0), std::forward<U>(u)...);
+            std::construct_at(std::addressof(_v), std::forward<U0>(u0), std::forward<U>(u)...);
     }
 
     constexpr bool has_value() const noexcept { return ! base::has_error(); }

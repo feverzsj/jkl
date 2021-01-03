@@ -3,6 +3,7 @@
 #include <jkl/config.hpp>
 #include <jkl/error.hpp>
 #include <jkl/result.hpp>
+#include <jkl/util/str.hpp>
 #include <jkl/util/handle.hpp>
 #include <unicode/ucnv.h>
 
@@ -73,7 +74,7 @@ public:
             case U_RULE_MASK_ERROR                 : return "A rule is hidden by an earlier more general rule";
             case U_MISPLACED_COMPOUND_FILTER       : return "A compound filter is in an invalid location";
             case U_MULTIPLE_COMPOUND_FILTERS       : return "More than one compound filter";
-            case U_INVALID_RBT_SYNTAX              : return "A "::id" rule was passed to the RuleBasedTransliterator parser";
+            case U_INVALID_RBT_SYNTAX              : return "A '::id' rule was passed to the RuleBasedTransliterator parser";
             case U_INVALID_PROPERTY_PATTERN        : return "UNUSED as of ICU 2.4";
             case U_MALFORMED_PRAGMA                : return "A 'use' pragma is invalid";
             case U_UNCLOSED_SEGMENT                : return "A closing ')' is missing";
@@ -82,8 +83,8 @@ public:
             case U_VARIABLE_RANGE_OVERLAP          : return "The variable range overlaps characters used in rules";
             case U_ILLEGAL_CHARACTER               : return "A special character is outside its allowed context";
             case U_INTERNAL_TRANSLITERATOR_ERROR   : return "Internal transliterator system error";
-            case U_INVALID_ID                      : return "A "::id" rule specifies an unknown transliterator";
-            case U_INVALID_FUNCTION                : return "A "&fn()" rule specifies an unknown transliterator";
+            case U_INVALID_ID                      : return "A '::id' rule specifies an unknown transliterator";
+            case U_INVALID_FUNCTION                : return "A '&fn()' rule specifies an unknown transliterator";
             case U_UNEXPECTED_TOKEN                : return "Syntax error in format pattern";
             case U_MULTIPLE_DECIMAL_SEPARATORS     : return "More than one decimal separator in number pattern";
             case U_MULTIPLE_EXPONENTIAL_SYMBOLS    : return "More than one exponent symbol in number pattern";
@@ -171,12 +172,14 @@ inline jkl::aerror_code make_error_code(UErrorCode e) noexcept { return {static_
 namespace jkl{
 
 
-int icu_compare_name(_char_str auto const& n1, _char_str auto const& n2)
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+int icu_compare_name(_char_str_ auto const& n1, _char_str_ auto const& n2)
 {
     return ucnv_compareNames(as_cstr(n1).data(), as_cstr(n2).data());
 }
 
-bool icu_equal_name(_char_str auto const& n1, _char_str auto const& n2)
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+bool icu_equal_name(_char_str_ auto const& n1, _char_str_ auto const& n2)
 {
     return icu_compare_name(n1, n2) == 0;
 }
@@ -208,13 +211,13 @@ public:
 
     void close() { _h.reset(); }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     static aresult<icu_charset> open(_char_str_ auto const& name)
     {
         UErrorCode e = U_ZERO_ERROR;
-        UConverter* h = ucnv_open(as_cstr(name).data(), &e);
-        if(! h)
-            return e;
-        return h;
+        if(UConverter* h = ucnv_open(as_cstr(name).data(), &e))
+            return icu_charset{h};
+        return e;
         // return {e, h}; don't use this, as UErrorCode may also represent warnings.
     }
 
@@ -226,11 +229,13 @@ public:
 
     int32_t max_char_size() const noexcept { return ucnv_getMaxCharSize(handle()); }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     int32_t max_from_u16_result_size(_u16_str_ auto const& s)
     {
         return UCNV_GET_MAX_BYTES_FOR_STRING(str_size(s), max_char_size());
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     static constexpr int32_t max_to_u16_result_size(_byte_str_ auto const& s)
     {
         return 2 * str_size(s);
@@ -242,10 +247,10 @@ public:
         if constexpr(! SkipMaxResize)
             resize_buf(d, max_from_u16_result_size(s));
 
-        auto dd = static_cast     <char*        >(buf_data(d));
-        auto dn = static_cast     <int32_t      >(buf_size(d));
-        auto sd = reinterpret_cast<UChar const* >(str_data(s));
-        auto sn = static_cast     <int32_t      >(str_size(s));
+        auto sd = reinterpret_cast<UChar const*>(str_data(s));
+        auto sn = static_cast     <int32_t     >(str_size(s));
+        auto dd = reinterpret_cast<char*       >(buf_data(d));
+        auto dn = static_cast     <int32_t     >(buf_size(d));
         UErrorCode e = U_ZERO_ERROR;
 
         int32_t n = ucnv_fromUChars(handle(), dd, dn, sd, sn, &e);
@@ -255,9 +260,9 @@ public:
             if(n > dn)
             {
                 resize_buf(d, n);
-                dd = static_cast<char*>(buf_data(d));
+                dd = reinterpret_cast<char*>(buf_data(d));
                 dn = n;
-                n = ucnv_fromUChars(handle(), dd, dn, sd, sn, &e);           
+                n = ucnv_fromUChars(handle(), dd, dn, sd, sn, &e);
             }
         }
 
@@ -265,7 +270,7 @@ public:
             return e;
 
         BOOST_ASSERT(n <= dn);
-        
+
         resize_buf(d, n);
 
         return no_err;
@@ -277,10 +282,10 @@ public:
         if constexpr(! SkipMaxResize)
             resize_buf(d, max_to_u16_result_size(s));
 
-        auto dd = reinterpret_cast<UChar const* >(buf_data(d));
-        auto dn = static_cast     <int32_t      >(buf_size(d));
-        auto sd = static_cast     <char*        >(str_data(s));
-        auto sn = static_cast     <int32_t      >(str_size(s));
+        auto sd = reinterpret_cast<char const*>(str_data(s));
+        auto sn = static_cast     <int32_t    >(str_size(s));
+        auto dd = reinterpret_cast<UChar*     >(buf_data(d));
+        auto dn = static_cast     <int32_t    >(buf_size(d));
         UErrorCode e = U_ZERO_ERROR;
 
         int32_t n = ucnv_toUChars(handle(), dd, dn, sd, sn, &e);
@@ -290,9 +295,9 @@ public:
             if(n > dn)
             {
                 resize_buf(d, n);
-                dd = static_cast<char*>(buf_data(d));
+                dd = reinterpret_cast<UChar*>(buf_data(d));
                 dn = n;
-                n = ucnv_toUChars(handle(), dd, dn, sd, sn, &e);           
+                n = ucnv_toUChars(handle(), dd, dn, sd, sn, &e);
             }
         }
 
@@ -315,7 +320,7 @@ public:
         return d;
     }
 
-    template<_resizable_16bits_buf_ B = string>
+    template<_resizable_16bits_buf_ B = u16string>
     aresult<B> to_u16(_byte_str_ auto const& s)
     {
         B d;
@@ -340,6 +345,7 @@ public:
     icu_charset src;
     icu_charset dst;
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     static aresult<icu_charset_cvt> open(_char_str_ auto const& srcName, _char_str_ auto const& dstName)
     {
         icu_charset_cvt cvt;
@@ -348,20 +354,11 @@ public:
         return cvt;
     }
 
-    static string_view canonical_name(_char_str auto const& alias)
-    {
-        UBool b;
-        UErrorCode e = U_ZERO_ERROR;
-        if(char const* n = ucnv_io_getConverterName(as_cstr(alias).data(), &b, &e))
-            return n;
-        return {};
-    }
-
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     static aresult<> to_dst(_char_str_ auto const& srcCs, _byte_str_ auto const& s,
-                             _char_str_ auto const& dstCs, _resizable_byte_buf_ auto& d)
+                            _char_str_ auto const& dstCs, _resizable_byte_buf_ auto& d)
     {
         JKL_TRY(auto&& cvt, open(srcCs, dstCs));
-        string d;
         return cvt.forward(s, d);
     }
 

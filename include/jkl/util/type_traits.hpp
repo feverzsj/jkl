@@ -5,10 +5,28 @@
 #include <boost/numeric/conversion/is_subranged.hpp>
 #include <array>
 #include <memory>
+#include <optional>
 #include <type_traits>
 
 
 namespace jkl{
+
+
+// In Most Cases:
+//   for type traits, apply std::remove_cv_t on the tested type;
+//   for concepts, apply std::remove_cvref_t on the tested type;
+
+
+// seems libc++ disables using std::declval in unevaluated context
+template<class T>
+std::add_rvalue_reference_t<T> declval() noexcept;
+
+
+template<class T>
+using is_null_op = std::is_same<T, null_op_t>;
+
+template<class T>
+static constexpr bool is_null_op_v = is_null_op<T>::value;
 
 
 template<bool Cond, class T>
@@ -18,11 +36,44 @@ template<bool Cond, class T>
 using not_null_if_t = null_if_t<! Cond, T>;
 
 
-template<class T          > struct is_array_class_helper                   : std::false_type{};
-template<class T, size_t N> struct is_array_class_helper<std::array<T, N>> : std::true_type {};
+// NOTE: can only be used in class or namespace scope (unless lambda is allowed
+// in unevaluated context, so that we can get rid of the static helper function).
+//
+// all types are lazily evaluated, so something like
+// JKL_LAZY_COND_TYPEDEF(type, false, typename T::something_not_exit, void) also works
+#define JKL_LAZY_COND_TYPEDEF(Name, Cond, Then, Else)                               \
+    static decltype(auto) _jkl_cond_typedef_##Name##_helper()                       \
+    {                                                                               \
+        if constexpr(Cond)                                                          \
+        {                                                                           \
+            if constexpr(! std::is_void_v<Then>)                                    \
+                return ::jkl::declval<Then>();                                      \
+        }                                                                           \
+        else                                                                        \
+        {                                                                           \
+            if constexpr(! std::is_void_v<Else>)                                    \
+                return ::jkl::declval<Else>();                                      \
+        }                                                                           \
+    }                                                                               \
+    using Name = std::remove_cvref_t<decltype(_jkl_cond_typedef_##Name##_helper())> \
+/**/
 
-template<class T> using                 is_array_class   = is_array_class_helper<std::remove_cv_t<T>>;
-template<class T> inline constexpr bool is_array_class_v = is_array_class<T>::value;
+#define JKL_LAZY_DEF_MEMBER_IF(Cond, Type, Name)                                       \
+    JKL_LAZY_COND_TYPEDEF(jkl_add_member_if_##Name##_t, Cond, Type, ::jkl::null_op_t); \
+    [[no_unique_address]] jkl_add_member_if_##Name##_t Name                            \
+/**/
+
+#define JKL_DEF_MEMBER_IF(Cond, Type, Name)                                     \
+    [[no_unique_address]] std::conditional_t<Cond, Type, ::jkl::null_op_t> Name \
+/**/
+
+
+
+template<class T          > struct is_std_array_helper                   : std::false_type{};
+template<class T, size_t N> struct is_std_array_helper<std::array<T, N>> : std::true_type {};
+
+template<class T> using                 is_std_array   = is_std_array_helper<std::remove_cv_t<T>>;
+template<class T> inline constexpr bool is_std_array_v = is_std_array<T>::value;
 
 
 template<class T         > struct is_unique_ptr_helper                        : std::false_type{};
@@ -32,7 +83,23 @@ template<class T> using                 is_unique_ptr   = is_unique_ptr_helper<s
 template<class T> inline constexpr bool is_unique_ptr_v = is_unique_ptr<T>::value;
 
 
+template<class T> struct is_shared_ptr_helper                     : std::false_type{};
+template<class T> struct is_shared_ptr_helper<std::shared_ptr<T>> : std::true_type {};
 
+template<class T> using                 is_shared_ptr   = is_shared_ptr_helper<std::remove_cv_t<T>>;
+template<class T> inline constexpr bool is_shared_ptr_v = is_shared_ptr<T>::value;
+
+template<class T> inline constexpr bool is_smart_ptr_v = is_unique_ptr_v<T> || is_shared_ptr_v<T>;
+
+
+template<class T> struct is_optional_helper                   : std::false_type{};
+template<class T> struct is_optional_helper<std::optional<T>> : std::true_type {};
+
+template<class T> using                 is_optional   = is_optional_helper<std::remove_cv_t<T>>;
+template<class T> inline constexpr bool is_optional_v = is_optional<T>::value;
+
+
+// NOTE: like std::is_same, cv qualicifiers are still taken into account.
 template<class U, class T, class... Ts>
 using is_one_of = std::bool_constant<(std::is_same_v<U, T> || ... || std::is_same_v<U, Ts>)>;
 

@@ -55,10 +55,10 @@ template<class T> using astream_t = std::remove_cvref_t<decltype(get_astream(std
 
 
 template<class T>
-concept _awaiter_ = requires(T t, std::coroutine_handle<> h)
+concept _awaiter_ = requires(T t/*, std::coroutine_handle<> h*/)
                     {
                         {t.await_ready()} -> std::same_as<bool>;
-                        t.await_suspend(h);
+                        //t.await_suspend(h);
                         t.await_resume();
                     };
 

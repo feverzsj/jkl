@@ -22,7 +22,8 @@ template<class F>
 struct direct_return_awaiter
 {
     F f;
-
+    
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     explicit direct_return_awaiter(auto&& u): f{JKL_FORWARD(u)} {}
 
     bool await_ready() const noexcept { return true; }
@@ -39,6 +40,7 @@ struct suspend_awaiter
 {
     F f;
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     explicit suspend_awaiter(auto&& u): f{JKL_FORWARD(u)} {}
 
     bool await_ready() const noexcept { return false; }
@@ -80,8 +82,10 @@ template<class T, class Derived>
 class apromise_return
 {
 public:
-    void return_value(auto&& v) noexcept(noexcept(static_cast<Derived*>(this)->_rv.template emplace<2>(JKL_FORWARD(v))))
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    void return_value(auto&& v) noexcept(std::is_nothrow_constructible_v<T, decltype(v)>)
     {
+        BOOST_ASSERT(static_cast<Derived*>(this)->_rv.index() == 0);
         static_cast<Derived*>(this)->_rv.template emplace<2>(JKL_FORWARD(v));
     }
 };
@@ -92,7 +96,8 @@ class apromise_return<T&, Derived>
 public:
     void return_value(T& v) noexcept
     {
-        static_cast<Derived*>(this)->_rv.emplace<2>(&v);
+        BOOST_ASSERT(static_cast<Derived*>(this)->_rv.index() == 0);
+        static_cast<Derived*>(this)->_rv.template emplace<2>(&v);
     }
 };
 
@@ -114,9 +119,10 @@ class apromise : public apromise_return<T, apromise<T, Ret, Derived>>
     friend class apromise_return<T, apromise<T, Ret, Derived>>;
     friend class atask<T>;
 
-    using result_variant = std::variant<std::monostate,
-                                        std::exception_ptr,
-                                        std::conditional_t<(std::is_void_v<T> || std::is_lvalue_reference_v<T>), T*, T>>;
+    using result_variant = std::conditional_t<std::is_void_v<T>,
+        std::variant<std::monostate, std::exception_ptr>,
+        std::variant<std::monostate, std::exception_ptr, std::conditional_t<std::is_lvalue_reference_v<T>, std::add_pointer_t<T>, T>>
+    >;
     result_variant _rv;
     std::coroutine_handle<> _continuation = nullptr;
     std::stop_source _stpSrc{std::nostopstate};
@@ -124,6 +130,7 @@ class apromise : public apromise_return<T, apromise<T, Ret, Derived>>
     using dpromise = std::conditional_t<std::is_void_v<Derived>, apromise, Derived>;
 
 protected:
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     void set_stop_source(auto&& u) noexcept
     {
         _stpSrc = JKL_FORWARD(u);
@@ -170,6 +177,7 @@ public:
         return direct_return_awaiter([&](){ return std::stop_callback(_stpSrc.get_token(), t.cb); });
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     auto&& await_transform(auto&& awaitable) noexcept
     {
         return JKL_FORWARD(awaitable);
@@ -213,14 +221,21 @@ public:
     {
         throw_on_exception();
 
-        BOOST_ASSERT(_rv.index() == 2);
-
         if constexpr(std::is_void_v<T>)
+        {
+            BOOST_ASSERT(_rv.index() == 0);
             return;
+        }
         else if constexpr(std::is_lvalue_reference_v<T>)
+        {
+            BOOST_ASSERT(_rv.index() == 2);
             return *std::get<2>(_rv);
+        }
         else
+        {
+            BOOST_ASSERT(_rv.index() == 2);
             return std::move(std::get<2>(_rv));
+        }
     }
 
     result_variant& result_var() { return _rv; }
@@ -325,6 +340,7 @@ struct skip_await_resume
 };
 
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 decltype(auto) sync_await(_awaiter_ auto&& a, std::stop_source const& s = std::stop_source{std::nostopstate})
 {
     std::mutex m;
@@ -388,6 +404,7 @@ using aresult_task = atask<aresult<T>>;
 
 
 // schedule surrounded coroutine on the executor or execution context
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 auto schedule_on(auto&& exc)
 {
     return suspend_awaiter([ex = get_executor(JKL_FORWARD(exc))](auto c)
@@ -396,6 +413,7 @@ auto schedule_on(auto&& exc)
                            });
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 auto schedule_on(auto&& exc, _co_awaitable_ auto&& a) 
 {
     return

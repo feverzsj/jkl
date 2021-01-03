@@ -1,11 +1,11 @@
 #include <iostream>
-#include <jkdf/mysql/env.hpp>
-#include <jkdf/mysql/conn.hpp>
-#include <jkdf/mysql/stmt.hpp>
+#include <jkl/mysql/env.hpp>
+#include <jkl/mysql/conn.hpp>
+#include <jkl/mysql/stmt.hpp>
 
 
 using namespace std;
-using namespace jkdf;
+using namespace jkl;
 
 
 int main()

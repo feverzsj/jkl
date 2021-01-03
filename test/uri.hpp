@@ -605,33 +605,23 @@ TEST_CASE("parse_data_url"){
     CHECK(parse("data:foo;charset=UTF-8,boo"       , false));
     CHECK(parse("data:foo/bar;baz=1;charset=kk,boo", true , "foo/bar", "kk", "boo"));
     CHECK(parse("data:foo/bar;charset=kk;baz=1,boo", true , "foo/bar", "kk", "boo"));
-
     CHECK(parse("data:text/html,%3Chtml%3E%3Cbody%3E%3Cb%3Ehello%20world%3C%2Fb%3E%3C%2Fbody%3E%3C%2Fhtml%3E",
                 true, "text/html", "", "<html><body><b>hello world</b></body></html>"));
-
     CHECK(parse("data:text/html,<html><body><b>hello world</b></body></html>",
                 true, "text/html", "", "<html><body><b>hello world</b></body></html>"));
-
     CHECK(parse("data:%2Cblah"                                  , false));
     CHECK(parse("data:;base64,aGVs_-_-"                         , false));
-    CHECK(parse("data:text/plain;charset=utf-8;base64,SGVsbMO2" , true , "text/plain", "utf-8", "Hell\xC3\xB6"));
-    CHECK(parse("data:;charset=utf-8;base64,SGVsbMO2"           , true , "text/plain", "utf-8", "Hell\xC3\xB6"));
+    CHECK(parse("data:text/plain;charset=utf-8;base64,SGVsbMO2" , true , "text/plain", "utf-8", "Hell\xC3\xB6", true));
+    CHECK(parse("data:;charset=utf-8;base64,SGVsbMO2"           , true , "text/plain", "utf-8", "Hell\xC3\xB6", true));
     CHECK(parse("data:;base64,aGVsbG8gd29yb"                    , false));
     CHECK(parse("data:text/plain;charset=utf-8,\xE2\x80\x8Ftest", true , "text/plain", "utf-8", "\xE2\x80\x8Ftest"));
-
     CHECK(parse("data:text/plain;charset=utf-8,\xE2\x80\x8F\xD8\xA7\xD8\xAE\xD8\xAA\xD8\xA8\xD8\xA7\xD8\xB1",
-          true, {"text/plain", "utf-8", "\xE2\x80\x8F\xD8\xA7\xD8\xAE\xD8\xAA\xD8\xA8\xD8\xA7\xD8\xB1"}));
-
+                true, "text/plain", "utf-8", "\xE2\x80\x8F\xD8\xA7\xD8\xAE\xD8\xAA\xD8\xA8\xD8\xA7\xD8\xB1"));
     CHECK(parse("data:text/plain;charset=utf-8,%E2%80%8Ftest", true, "text/plain", "utf-8", "\xE2\x80\x8Ftest"));
-
     CHECK(parse("data:text/plain;charset=utf-8,%E2%80%8F\xD8\xA7\xD8\xAE\xD8\xAA\xD8\xA8\xD8\xA7\xD8\xB1",
-          true, "text/plain", "utf-8", "\xE2\x80\x8F\xD8\xA7\xD8\xAE\xD8\xAA\xD8\xA8\xD8\xA7\xD8\xB1"));
-
-        // More unescaping tests and tests with nulls.
+                true, "text/plain", "utf-8", "\xE2\x80\x8F\xD8\xA7\xD8\xAE\xD8\xAA\xD8\xA8\xD8\xA7\xD8\xB1"));
     CHECK(parse("data:%00text/plain%41,foo", true, "%00text/plain%41", "", "foo"));
-    CHECK(parse("data:text/plain;charset=%00US-ASCII%41,foo", true, "text/plain", "%00US-ASCII%41", "foo"));
-
-    // "%62ase64" unescapes to base64, but should not be treated as such.
+    CHECK(parse("data:text/plain;charset=%00US-ASCII%41,foo", true, "text/plain", "%00us-ascii%41", "foo"));
     CHECK(parse("data:text/plain;%62ase64,AA//", true, "text/plain", "", "AA//"));
 
 } // TEST_CASE("scheme host port")

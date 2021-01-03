@@ -2,11 +2,33 @@
 
 #include <jkl/config.hpp>
 #include <jkl/util/small_vector.hpp>
+#include <jkl/charset/ascii.hpp>
 #include <boost/beast/http/fields.hpp>
 #include <boost/beast/http/message.hpp>
+#include <boost/beast/http/string_body.hpp>
 
 
 namespace jkl{
+
+
+using http_fields           = beast::http::fields;
+using http_request_header   = beast::http::request_header<>;
+using http_response_header  = beast::http::response_header<>;
+
+template<class Body = beast::http::string_body>
+using http_request_t = beast::http::request<Body>;
+
+template<class Body = beast::http::string_body>
+using http_response_t = beast::http::response<Body>;
+
+using http_request  = http_request_t<>;
+using http_response = http_response_t<>;
+
+
+constexpr bool is_http_lws(char c) noexcept
+{
+    return c == ' ' || c == '\t';
+}
 
 
 struct http_field_content_type
@@ -16,21 +38,22 @@ struct http_field_content_type
     string boundary;
 
     // parse all Content-Type fields, ignore any error
-    // 
+    //
     // media-type = type "/" subtype *( ";" parameter )
     // parameter  = attribute "=" value
     // value      = token | quoted-string
-    // 
+    //
     // e.g.:
     // Content-Type: text/html; charset=ISO-8859-4
     // Content-Type: multipart/mixed; boundary=gc0p4Jq0M2Yt08jU534c0p
     //
     // actual parameter depends on type "/" subtype
     // see: https://www.iana.org/assignments/media-types/media-types.xhtml#text
-    void parse(beast::http::fields const& flds)
+    void parse(http_fields const& flds)
     {
-        for(auto& v : flds.equal_range(beast::http::field::content_type))
-            parse(v.value());
+        auto[beg, end] = flds.equal_range(beast::http::field::content_type);
+        for(; beg != end; ++beg)
+            parse(beg->value());
     }
 
     // chromium/git/net/http/http_util.cc
@@ -60,7 +83,7 @@ struct http_field_content_type
         // logic in https://mimesniff.spec.whatwg.org/. Main differences: Does not
         // validate characters are HTTP token code points / HTTP quoted-string token
         // code points, and ignores spaces after "=" in parameters.
-        
+
         auto offset = str.find(';', mimeEnd);
         if(offset == npos)
             return;
@@ -105,7 +128,7 @@ struct http_field_content_type
 
             if(str[offset] == ';')
                 continue; // an unquoted string of only whitespace should be skipped.
-                
+
             string value;
 
             if(str[offset] != '"')
@@ -118,7 +141,7 @@ struct http_field_content_type
                     vend = str.size();
 
                 // trim LWS at end
-                while(vbeg < vend && (str[vend - 1] == ' ' || str[vend - 1] == '\t'))
+                while(vbeg < vend && is_http_lws(str[vend - 1]))
                     --vend;
 
                 value = str.substr(vbeg, vend - vbeg);
@@ -138,9 +161,9 @@ struct http_field_content_type
                     vend = str.size();
 
                 // trim LWS
-                while(vbeg < vend && (str[vbeg] == ' ' || str[vend] == '\t'))
+                while(vbeg < vend && is_http_lws(str[vbeg]))
                     ++vbeg;
-                while(vbeg < vend && (str[vend - 1] == ' ' || str[vend - 1] == '\t'))
+                while(vbeg < vend && is_http_lws(str[vend - 1]))
                     --vend;
 
                 while(vbeg < vend && str[vbeg] != '"')
@@ -176,48 +199,12 @@ struct http_field_content_type
 };
 
 
-template<class Allocator>
-class http_fields_t : public beast::http::basic_fields<Allocator>
+inline http_field_content_type parse_http_content_type(http_fields const& flds)
 {
-    using base = beast::http::basic_fields<Allocator>;
-
-public:
-    using base::base;
-    using base::operator=;
-
-    http_field_content_type parse_content_type() const
-    {
-        http_field_content_type t;
-        t.parse(*this)
-        return t;
-    }
-};
-
-
-using http_fields = http_fields_t<std::allocator<char>>;
-
-
-template<bool Request, class Fields = http_fields>
-using http_header = beast::http::header<Request, Fields>;
-
-template<class Fields = http_fields>
-using http_request_header = http_header<true, Fields>;
-
-template<class Fields = http_fields>
-using http_response_header = http_header<false, Fields>;
-
-
-template<bool Request, class Body = beast::http::string_body, class Fields = http_fields>
-using http_msg = beast::http::message<Request, Body, Fields>
-
-template<class Body = beast::http::string_body, class Fields = http_fields>
-using http_request_t = http_msg<true, Body, Fields>;
-
-template<class Body = beast::http::string_body, class Fields = http_fields>
-using http_response_t = http_msg<false, Body, Fields>;
-
-using http_request  = http_request_t<>;
-using http_response = http_response_t<>;
+    http_field_content_type t;
+    t.parse(flds);
+    return t;
+}
 
 
 } // namespace jkl

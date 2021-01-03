@@ -20,11 +20,11 @@ namespace jkl{
         template<class Q, class U>                                \
         NAME(std::chrono::duration<Q, U> const& d) : base(d) {}   \
     };                                                            \
-//     template<class T>                                             \
-//     auto stringify(NAME<T> const& u)                              \
-//     {                                                             \
-//         return cat_as_str(u.count(), "_" #SUFFIX);                \
-//     }                                                             \
+    template<class T>                                             \
+    auto stringify(NAME<T> const& u)                              \
+    {                                                             \
+        return cat_as_str(u.count(), "_" #SUFFIX);                \
+    }                                                             \
 /**/
 
 

@@ -85,6 +85,21 @@ aresult<> uri_codec_cvt_assign(auto& d, _char_str_ auto const& s)
     }
 }
 
+// MSVC_WORKAROUND
+template<class T, class S>
+concept __has_find = requires(T& t, S& s){ t.find(s); };
+template<class T, class S>
+concept __has_rfind = requires(T& t, S& s){ t.rfind(s); };
+template<class T, class S>
+concept __has_starts_with = requires(T& t, S& s){ t.starts_with(s); };
+template<class T, class S>
+concept __has_ends_with = requires(T& t, S& s){ t.ends_with(s); };
+template<class T>
+concept __has_subview = requires(T& t, size_t pos, size_t count){ t.subview(pos, count); };
+template<class T>
+concept __has_clear = requires(T& t){ t.clear(); };
+template<class T>
+concept __default_assignable = requires(T& t){ t = {}; };
 
 
 template<class Tag, uri_codec_e Codec, _str_class_ S>
@@ -99,33 +114,41 @@ struct uri_str_comp
     auto size() const noexcept { return _s.size(); }
     bool empty() const noexcept { return _s.empty(); }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     auto find(auto const& s) const noexcept
     {
-        if constexpr(requires{ _s.find(s); })
+        //if constexpr(requires{ _s.find(s); })
+        if constexpr(__has_find<decltype(_s), decltype(s)>)
             return _s.find(s);
         else
             return string_view{_s}.find(s);
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     auto rfind(auto const& s) const noexcept
     {
-        if constexpr(requires{ _s.rfind(s); })
+        //if constexpr(requires{ _s.rfind(s); })
+        if constexpr(__has_rfind<decltype(_s), decltype(s)>)
             return _s.rfind(s);
         else
             return string_view{_s}.rfind(s);
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     bool starts_with(auto const& s) const noexcept
     {
-        if constexpr(requires{ _s.starts_with(s); })
+        //if constexpr(requires{ _s.starts_with(s); })
+        if constexpr(__has_starts_with<decltype(_s), decltype(s)>)
             return _s.starts_with(s);
         else
             return string_view{_s}.starts_with(s);
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     bool ends_with(auto const& s) const noexcept
     {
-        if constexpr(requires{ _s.ends_with(s); })
+        //if constexpr(requires{ _s.ends_with(s); })
+        if constexpr(__has_ends_with<decltype(_s), decltype(s)>)
             return _s.ends_with(s);
         else
             return string_view{_s}.ends_with(s);
@@ -133,7 +156,8 @@ struct uri_str_comp
 
     auto subview(size_t const pos = 0, size_t const count = string_view::npos) const
     {
-        if constexpr(requires{ _s.subview(pos, count); })
+        //if constexpr(requires{ _s.subview(pos, count); })
+        if constexpr(__has_subview<decltype(_s)>)
             return _s.subview(pos, count);
         else
             return string_view{_s}.substr(pos, count);
@@ -166,9 +190,11 @@ struct uri_str_comp
 
     void clear() requires(! std::is_const_v<std::remove_reference_t<S>> && (requires{ _s.clear(); } || requires{ _s = {}; }))
     {
-        if constexpr(requires{ _s.clear(); })
+        //if constexpr(requires{ _s.clear(); })
+        if constexpr(__has_clear<decltype(_s)>)
             _s.clear();
-        else if constexpr(requires{ _s = {}; })
+        //else if constexpr(requires{ _s = {}; })
+        else if constexpr(__default_assignable<decltype(_s)>)
             _s = {};
         else
             JKL_DEPENDENT_FAIL(S, "unsupported type");
@@ -244,6 +270,7 @@ struct uri_ipaddr_comp
     lref_or_val_t<T> addr;
     bool unspecified;
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     explicit uri_ipaddr_comp(auto&& a) : addr{JKL_FORWARD(a)}, unspecified{a.is_unspecified()} {}
 
     constexpr bool non_empty() const noexcept
@@ -307,7 +334,7 @@ struct uri_ipaddr_comp
         else
             JKL_DEPENDENT_FAIL(T, "unsupported type");
 
-        unspecified = ec;
+        unspecified = !!ec;
 
         return ec;
     }
@@ -387,13 +414,15 @@ struct uri_auto_port_comp
         n = 0;
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     char* append_colon_port_to(char* d, _char_str_ auto const& uri) // uri until 'd'
     {
         if(n && n != prefix_to_well_known_port(uri))
             return append_str(d, ':', stringify(n));
         return d;
     }
-                                                               //vvv: uri until 's'
+
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR                                  //vvv: uri until 's'
     aresult<> assign_port(_char_str_ auto const& s, _char_str_ auto const& uri) requires(! std::is_const_v<std::remove_reference_t<T>>)
     {
         if(str_size(s) == 0)
@@ -409,11 +438,13 @@ struct uri_auto_port_comp
     }
 };
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr auto uri_port(_arithmetic_ auto&& n) noexcept
 {
     return uri_port_comp<decltype(n)>{JKL_FORWARD(n)};
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr auto uri_auto_port(_arithmetic_ auto&& n) noexcept
 {
     return uri_auto_port_comp<decltype(n)>{JKL_FORWARD(n)};
@@ -544,6 +575,7 @@ struct uri_query_kvs_comp : std::tuple<lref_or_val_t<T>...>
         return --d; // remove last '&'
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     static aresult<> foreach_pair(auto&& f, auto&& a, auto&& b, auto const&... pas)
     {
         auto&& r = JKL_FORWARD(f)(JKL_FORWARD(a), JKL_FORWARD(b));
@@ -552,6 +584,7 @@ struct uri_query_kvs_comp : std::tuple<lref_or_val_t<T>...>
         return r;
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     static aresult<> foreach_pair_of_tuple(auto&& f, auto&& t)
     {
         return std::apply(
@@ -667,6 +700,7 @@ struct uri_query_range_or_cont_comp
         }
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     void direct_emplace(auto&& k, auto&& v) requires(! std::is_const_v<std::remove_reference_t<T>>)
     {
         if constexpr(requires{ rc.emplace(JKL_FORWARD(k), JKL_FORWARD(v)); })

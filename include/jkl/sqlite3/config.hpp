@@ -1,8 +1,8 @@
 #pragma once
 
+#include <jkl/config.hpp>
 #include <jkl/util/log.hpp>
 #include <jkl/util/unit.hpp>
-#include <boost/assert.hpp>
 #include <stdexcept>
 #include <sqlite3.h>
 

@@ -56,7 +56,7 @@ consteval size_t tagged_elem_idx()
 template<class Tuple, class Tag>
 inline constexpr bool has_tag = tagged_elem_idx<Tuple, Tag>() != static_cast<size_t>(-1);
 
-template<class Tuple, class.. Tags>
+template<class Tuple, class... Tags>
 inline constexpr bool has_oneof_tag = (... || has_tag<Tuple, Tags>);
 
 

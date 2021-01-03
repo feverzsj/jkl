@@ -15,7 +15,7 @@ class uri_writer : public std::tuple<lref_or_val_t<T>...>
     using base = std::tuple<lref_or_val_t<T>...>;
 
     template<class Tag> static consteval bool has() { return has_tag<base, Tag>; };
-    template<class... Tags> static consteval bool has_oneof() { return has_oneof_tag<base, Tags>; };
+    template<class... Tags> static consteval bool has_oneof() { return has_oneof_tag<base, Tags...>; };
 
     template<class Tag> auto&& get()       noexcept requires(has<Tag>()) { return get_tagged<Tag>(static_cast<base      &>(*this)); }
     template<class Tag> auto&& get() const noexcept requires(has<Tag>()) { return get_tagged<Tag>(static_cast<base const&>(*this)); }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <jkdf/config.hpp>
+#include <jkl/config.hpp>
 #include <boost/endian/conversion.hpp>
 
 
@@ -17,14 +17,14 @@ namespace bendian = boost::endian;
 // if N < sizeof(T), T must be integral or enum
 
 template<size_t N, class T>
-void store_le(void* p, T v) noexcept { bendian::endian_store<T, N, bendian::order::little>(static_cast<unsigned char*>(p), v); }
+void store_le(void* p, T v) noexcept { bendian::endian_store<T, N, bendian::order::little>(reinterpret_cast<unsigned char*>(p), v); }
 template<size_t N, class T>
-void store_be(void* p, T v) noexcept { bendian::endian_store<T, N, bendian::order::big   >(static_cast<unsigned char*>(p), v); }
+void store_be(void* p, T v) noexcept { bendian::endian_store<T, N, bendian::order::big   >(reinterpret_cast<unsigned char*>(p), v); }
 
 template<class T, size_t N>
-T load_le(void const* p) noexcept { return bendian::endian_load<T, N, bendian::order::little>(static_cast<unsigned char*>(p)); }
+T load_le(void const* p) noexcept { return bendian::endian_load<T, N, bendian::order::little>(reinterpret_cast<unsigned char const*>(p)); }
 template<class T, size_t N>
-T load_be(void const* p) noexcept { return bendian::endian_load<T, N, bendian::order::big   >(static_cast<unsigned char*>(p)); }
+T load_be(void const* p) noexcept { return bendian::endian_load<T, N, bendian::order::big   >(reinterpret_cast<unsigned char const*>(p)); }
 
 template<size_t N, class T>
 void load_le(void const* p, T& v) noexcept { v = load_le<T, N>(p); }

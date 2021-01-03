@@ -49,7 +49,7 @@ public:
     }
 };
 
-template <class... P>
+template<class... P>
 make_params(P...)->make_params<P...>;
 
 
@@ -58,6 +58,11 @@ make_params(P...)->make_params<P...>;
 //   ^^^^^^^^^ if all p are constexpr.                                // or use params.has(tag) to detect if an option exists
 //  [constexpr] auto o = params(option_tag);
 //   ^^^^^^^^^ if this option is constexpr.
+
+
+// generate a param for Tag that forwards v
+template<class Tag>
+inline constexpr auto p_forward = []<class T>(T&& v) { return [&v](Tag) -> T&& { return static_cast<T&&>(v); }; };
 
 
 } // namespace jkl

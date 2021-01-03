@@ -19,11 +19,13 @@ template<class T> concept _dynabuf_v1_or_v2_ = _dynabuf_v1_<T> || _dynabuf_v2_<T
 
 
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 auto asio_buf(_byte_buf_ auto& b) noexcept
 {
     return asio::buffer(buf_data(b), buf_size(b));
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 auto buy_asio_buf(_resizable_buf_ auto& b, size_t n) noexcept
 {
     return asio::buffer(buy_buf(b, n), n);

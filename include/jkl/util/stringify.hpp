@@ -18,28 +18,28 @@ struct fixed_storage_str
     char     d[Cap];
 
     template<unsigned N>
-    void assign_literal(char const (&s)[N]) noexcept
+    constexpr void assign_literal(char const (&s)[N]) noexcept
     {
         static_assert(N - 1 <= Cap);
         memcpy(d, s, N - 1);
         n = N - 1;
     }
 
-    void set_end(char const* e) noexcept
+    constexpr void set_end(char const* e) noexcept
     {
         BOOST_ASSERT(d <= e && e < d + Cap);
         n = static_cast<unsigned>(e - d);
     }
 
-    char      * data()       noexcept { return d; }
-    char const* data() const noexcept { return d; }
-    auto        size() const noexcept { return n; }
+    constexpr char      * data()       noexcept { return d; }
+    constexpr char const* data() const noexcept { return d; }
+    constexpr auto        size() const noexcept { return n; }
 
-//     template<class Tx          > operator std::basic_string_view<char, Tx    >() const noexcept { return {data(), size()}; }
-//     template<class Tx, class Ax> operator std::basic_string     <char, Tx, Ax>() const          { return {data(), size()}; }
-// 
-//     template<class Tx          > operator boost::basic_string_view      <char, Tx    >() const noexcept { return {data(), size()}; }
-//     template<class Tx, class Ax> operator boost::container::basic_string<char, Tx, Ax>() const          { return {data(), size()}; }
+//     template<class Tx          > constexpr operator std::basic_string_view<char, Tx    >() const noexcept { return {data(), size()}; }
+//     template<class Tx, class Ax> constexpr operator std::basic_string     <char, Tx, Ax>() const          { return {data(), size()}; }
+//
+//     template<class Tx          > constexpr operator boost::basic_string_view      <char, Tx    >() const noexcept { return {data(), size()}; }
+//     template<class Tx, class Ax> constexpr operator boost::container::basic_string<char, Tx, Ax>() const          { return {data(), size()}; }
 };
 
 
@@ -79,6 +79,7 @@ consteval size_t stringify_integer_max_bytes() noexcept
 }
 
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr auto const& stringify(_str_ auto const& v) noexcept { return v; }
 constexpr char const* stringify(bool              v) noexcept { return v ? "true" : "false"; }
 constexpr char const* stringify(std::nullptr_t     ) noexcept { return "null"; }
@@ -139,6 +140,7 @@ auto stringify(V v, int base) noexcept
     return b;
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 auto stringify(std::floating_point auto v, int prec = 324) noexcept
 {
     fixed_storage_str<25> b; // check rapidjson::Writer::WriteDouble() for the max buffer size
@@ -167,15 +169,18 @@ template<class T>
 concept _stringifible_ = requires(T& t){ stringify(t); };
 
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr size_t max_stringify_size(_str_ auto const& v) noexcept { return str_size(v); }
 constexpr size_t max_stringify_size(bool              v) noexcept { return v ? 4 : 5; }
 consteval size_t max_stringify_size(std::nullptr_t     ) noexcept { return 4; }
 
 template<size_t Base = 10, std::integral V>
 consteval size_t max_stringify_size(V) noexcept { return stringify_integer_max_bytes<Base, V>(); }
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 consteval size_t max_stringify_size(std::floating_point auto) noexcept { return 25; }
 
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr size_t max_stringify_size(_stringifible_ auto const&... vs) noexcept
 {
     return (... + max_stringify_size(vs));
@@ -185,6 +190,7 @@ constexpr size_t max_stringify_size(_stringifible_ auto const&... vs) noexcept
 // NOTE: character literal not supported, use single character string literal
 //       or use append_str(), cat_str()
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 void append_as_str(auto& d, _stringifible_ auto const&... t)
 {
     append_str(d, stringify(t)...);

@@ -5,7 +5,9 @@
 #include <jkl/result.hpp>
 #include <jkl/util/buf.hpp>
 #include <jkl/util/str.hpp>
+#include <jkl/util/small_vector.hpp>
 #include <jkl/charset/bom.hpp>
+#include <jkl/charset/ascii.hpp>
 #include <gumbo.h>
 #include <memory>
 
@@ -66,6 +68,7 @@ inline string_view _g_to_strv(GumboStringPiece const& s) noexcept
     return {s.data, s.length};
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 GumboTag _g_to_tag(_char_str_ auto const& s) noexcept
 {
     return gumbo_tagn_enum(str_data(s), static_cast<unsigned>(str_size(s)));
@@ -83,8 +86,9 @@ struct html_tag_sel
 {
     GumboTag tag;
 
-    explicit html_tag_sel(GumboTag t) : tag{t} { BOOST_ASSERT(tag != GUMBO_TAG_UNKNOWN); }
-    explicit html_tag_sel(_char_str_ auto const& t) : tag{_g_to_tag(t)} { BOOST_ASSERT(tag != GUMBO_TAG_UNKNOWN); }
+    constexpr explicit html_tag_sel(GumboTag t) : tag{t} { BOOST_ASSERT(tag != GUMBO_TAG_UNKNOWN); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    constexpr explicit html_tag_sel(_char_str_ auto const& t) : tag{_g_to_tag(t)} { BOOST_ASSERT(tag != GUMBO_TAG_UNKNOWN); }
 
     bool match(gumbo_element const& e) const noexcept;
 };
@@ -102,19 +106,21 @@ struct html_simple_sel
     small_vector<std::pair<string, string>, 2> attrs;
 
     html_simple_sel() = default;
-    
+
     explicit html_simple_sel(string_view const& s)
     {
         if(! parse(s))
             throw std::runtime_error("html_simple_sel: failed to parse");
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     explicit html_simple_sel(GumboTag tag_, _char_str_ auto const&... attrs_) noexcept(noexcept(add_attrs(attrs_...)))
         : tag{tag_}
     {
         add_attrs(attrs_...);
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     void add_attrs(_char_str_ auto const& k, _char_str_ auto const& v, _char_str_ auto const&... attrs_)
     {
         attrs.emplace(k, v);
@@ -138,7 +144,7 @@ struct html_simple_sel
         if(sel[0] == '*')
         {
             i = 1;
-            tag = GUMBO_TAG_LAST;            
+            tag = GUMBO_TAG_LAST;
         }
         else
         {
@@ -213,11 +219,16 @@ struct html_combo_sel
 {
     [[no_unique_address]] F f;
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    explicit html_combo_sel(auto&& f_) : f{JKL_FORWARD(f_)} {}
     bool match(gumbo_element const& e) const noexcept
     {
         return f(e);
     }
 };
+
+template<class F>
+html_combo_sel(F) -> html_combo_sel<F>;
 
 
 template<class T>
@@ -226,9 +237,12 @@ template<class F>
 struct is_html_combo_sel<html_combo_sel<F>> : std::true_type{};
 
 template<class T>
-concept _html_sel_ = is_one_of_v<std::remove_cvref_t<T>, html_tag_sel, html_simple_sel> || is_html_combo_sel<T>::value;
+concept _html_sel_ = is_one_of_v<std::remove_cvref_t<T>, html_tag_sel, html_simple_sel>
+                     || is_html_combo_sel<std::remove_cvref_t<T>>::value;
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr auto&& to_html_sel(_html_sel_ auto&&      s) noexcept { return JKL_FORWARD(s); }
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr auto   to_html_sel(_char_str_ auto const& s)          { return html_simple_sel{s}; }
 constexpr auto   to_html_sel(GumboTag               t) noexcept { return html_tag_sel{t}; }
 
@@ -239,14 +253,14 @@ concept _two_html_sel_or_at_most_one_str_or_tag_ = (_html_sel_<L> && _html_sel_<
                                                 || ((_char_str_<L> || std::same_as<std::remove_cvref_t<L>, GumboTag>) && _html_sel_<R>);
 
 template<class L, class R>
-constexpr auto operator&&(L auto&& l, R auto&& r) requires(_two_html_sel_or_at_most_one_str_or_tag_<L, R>)
+constexpr auto operator&&(L&& l, R&& r) requires(_two_html_sel_or_at_most_one_str_or_tag_<L, R>)
 {
     return html_combo_sel{[l = to_html_sel(JKL_FORWARD(l)), r = to_html_sel(JKL_FORWARD(r))](gumbo_element const& e){
         return l.match(e) && r.match(e); }};
 }
 
 template<class L, class R>
-constexpr auto operator||(L auto&& l, R auto&& r) requires(_two_html_sel_or_at_most_one_str_or_tag_<L, R>)
+constexpr auto operator||(L&& l, R&& r) requires(_two_html_sel_or_at_most_one_str_or_tag_<L, R>)
 {
     return html_combo_sel{[l = to_html_sel(JKL_FORWARD(l)), r = to_html_sel(JKL_FORWARD(r))](gumbo_element const& e){
         return l.match(e) || r.match(e); }};
@@ -254,12 +268,13 @@ constexpr auto operator||(L auto&& l, R auto&& r) requires(_two_html_sel_or_at_m
 
 // match l but not r, same as (l && !r)
 template<class L, class R>
-constexpr auto operator-(L auto&& l, R auto&& r) requires(_two_html_sel_or_at_most_one_str_or_tag_<L, R>)
+constexpr auto operator-(L&& l, R&& r) requires(_two_html_sel_or_at_most_one_str_or_tag_<L, R>)
 {
     return html_combo_sel{[l = to_html_sel(JKL_FORWARD(l)), r = to_html_sel(JKL_FORWARD(r))](gumbo_element const& e){
         return l.match(e) && !r.match(e); }};
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr auto operator!(_html_sel_ auto&& s)
 {
     return html_combo_sel{[s = JKL_FORWARD(s)](gumbo_element const& e){ return ! s.match(e); }};
@@ -298,7 +313,7 @@ class gumbo_attr
 
 public:
     gumbo_attr() = default;
-    
+
     explicit operator bool() const noexcept { return _h != nullptr; }
 
     GumboAttributeNamespaceEnum ns() const noexcept { return _h->attr_namespace; }
@@ -391,11 +406,14 @@ public:
     // % / * operators have same precedence, so they can be chained without parentheses;
     // their precedence are also higher than << and >>, so can be used in stream operator with out parentheses.
 
-    gumbo_elm_coll operator%(auto const& sel) const { return elms<hs_until_found>(sel); }
-    gumbo_elm_coll operator/(auto const& sel) const { return elms<hs_direct_child>(sel); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    auto operator%(auto const& sel) const { return elms<hs_until_found>(sel); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    auto operator/(auto const& sel) const { return elms<hs_direct_child>(sel); }
 
     // c * "<>\n" : hs_until_found/hs_all text nodes, combinded with each end with '\n'
     // c * "<>\n"_child : hs_direct_child
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     string operator*(auto const& defAndSep) const
     {
         decltype(auto) sl = to_html_slit<hs_until_found>(defAndSep);
@@ -436,7 +454,7 @@ public:
 
         return {};
     }
-    
+
     template<html_search_type ST>
     void foreach_if(auto&& f) const
     {
@@ -470,7 +488,7 @@ public:
                 }
                 else
                 {
-                    _JKDF_DEPENDENT_FAIL(decltype(f), "unsupported gumbo_serach_type");
+                    JKL_DEPENDENT_FAIL(decltype(f), "unsupported gumbo_serach_type");
                 }
             }
         }
@@ -541,7 +559,7 @@ public:
 
     bool has_attr(string_view const& k) const noexcept
     {
-        return get_attr(k);
+        return !!get_attr(k);
     }
 
     bool has_attr(string_view const& k, string_view const& v) const noexcept
@@ -585,7 +603,7 @@ public:
         for(auto const& e : *this)
             e.foreach_if<ST>(JKL_FORWARD(f));
     }
-    
+
     explicit operator bool() const noexcept { return size(); }
 
     // get attr value of first element if any.
@@ -642,7 +660,7 @@ gumbo_elm_coll gumbo_searchable<D>::elms(auto const& sel) const
 
     decltype(auto) hsel = to_html_sel(sel);
 
-    derived()->foreach_if<ST>(
+    derived()->template foreach_if<ST>(
         [&v, &hsel](gumbo_element e) mutable
         {
             if(e && hsel.match(e))
@@ -718,14 +736,14 @@ string gumbo_searchable<D>::united_text(string_view const& defAndSep) const
 // class gumbo_error
 // {
 //     GumboError* _h;
-// 
+//
 // public:
 //     gumbo_error(GumboError* p) : _h(p) {}
-// 
+//
 //     GumboErrorType const&      type    () const { return _h->type         ; }
 //     GumboSourcePosition const& pos     () const { return _h->position     ; }
 //     string_view           ori_text() const { return _h->original_text; }
-// 
+//
 //     // pick one error according to type()
 //     uint64_t                        codepoint() const { return _h->v.codepoint       ; }
 //     string_view                text     () const { return _g_to_strv(_h->v.text); }
@@ -747,7 +765,7 @@ public:
 
     explicit operator bool() const noexcept { return _h.operator bool(); }
 
-    gumbo_document document() const { return gumbo_node(_h->document); } // 
+    gumbo_document document() const { return gumbo_node(_h->document); } //
     gumbo_element  root    () const { return gumbo_node(_h->root    ); } // <html>...</html>
 
     bool has_error() const { return _h->errors.length > 0; }
@@ -755,6 +773,7 @@ public:
 };
 
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 aresult<gumbo_output> parse_html(_char_str_ auto const& s, GumboOptions const& opts = kGumboDefaultOptions) noexcept
 {
     if(auto r = gumbo_parse_with_options(&opts, str_data(s), str_size(s)))
@@ -777,27 +796,28 @@ aresult<gumbo_output> parse_html(string_view const& s,
 {
     BOOST_ASSERT(dstCs.size());
 
-    gumbo_output r;
+    gumbo_output o;
 
     if constexpr(! SkipCsDetection)
     {
         if(auto w = detect_bom(s))
         {
-            srcCs = w->charset;
+            srcCs = w.charset;
         }
         else if(srcCs.empty())
         {
-            JKL_TRY(r, parse_html(s, opts));
+            JKL_TRY(o, parse_html(s, opts));
 
-            srcCs = ascii_trimed_view(r.root() / "head" / "meta" - "charset");
+            srcCs = ascii_trimed_view(o.root() / "head" / "meta" - "charset");
         }
     }
 
-    dstCs = CsCvt::canonical_name(dstCs);
-    srcCs = srcCs.empty() ? dstCs : CsCvt::canonical_name(srcCs);
-
-    if(srcCs == dstCs)
-        return r ? r : parse_html(s, opts);
+    if(srcCs.empty() || srcCs == dstCs)
+    {
+        if(o)
+            return o;
+        return parse_html(s, opts);
+    }
 
     JKL_TRY(auto&& d, CsCvt::to_dst(srcCs, s, dstCs));
     return parse_html(d, opts);

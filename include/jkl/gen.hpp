@@ -2,6 +2,8 @@
 
 #include <jkl/config.hpp>
 #include <jkl/task.hpp>
+#include <jkl/util/log.hpp>
+#include <jkl/util/unordered_map_set.hpp>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -20,26 +22,39 @@ public:
     class promise_type : public apromise<CoReturnType, agen, promise_type>
     {
     public:
-        std::optional<T> _yv;
+        struct yield_value_awaiter
+        {
+            bool await_ready() const noexcept { return false; }
 
-        auto yield_value(auto&& u) noexcept(noexcept(_yv.emplace(JKL_FORWARD(u))))
+            auto await_suspend(std::coroutine_handle<promise_type> c)
+            {
+                BOOST_ASSERT(c.promise().continuation());
+                return tail_resume(c.promise().continuation());
+            }
+
+            void await_resume() const noexcept {}
+        };
+
+        std::optional<std::conditional_t<std::is_lvalue_reference_v<T>, std::add_pointer_t<T>, T>> _yv;
+        
+        auto yield_value(T u) noexcept requires(std::is_lvalue_reference_v<T>)
+        {
+            _yv.emplace(&u);
+            return yield_value_awaiter();
+        }
+
+        template<class U>
+        auto yield_value(U&& u) noexcept(noexcept(_yv.emplace(JKL_FORWARD(u)))) requires(! std::is_lvalue_reference_v<T>)
         {
             _yv.emplace(JKL_FORWARD(u));
-
-            struct yield_value_awaiter
-            {
-                bool await_ready() const noexcept { return false; }
-
-                auto await_suspend(std::coroutine_handle<promise_type> c)
-                {
-                    BOOST_ASSERT(c.promise().continuation());
-                    return tail_resume(c.promise().continuation());
-                }
-
-                void await_resume() const noexcept {}
-            };
-
             return yield_value_awaiter();
+        }
+
+        auto release_yielded()
+        {
+            auto t = std::move(_yv);
+            _yv.reset();
+            return t;
         }
     };
 
@@ -66,11 +81,11 @@ public:
             return tail_resume(p.coroutine());
         }
 
-        auto await_resume()
+        decltype(auto) await_resume()
         {
             if constexpr(ThrowUnhandledException)
                 p.throw_on_exception();
-            return std::move(p._yv);
+            return p.release_yielded();
         }
     };
 
@@ -109,11 +124,13 @@ agen<typename std::iterator_traits<decltype(std::begin(std::declval<R>()))>::val
     }
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 auto gen_moved_range_elems(auto beg, auto end)
 {
     return gen_range_elems<true>(beg, end);
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 auto gen_moved_range_elems(auto&& r)
 {
     return gen_range_elems<true>(JKL_FORWARD(r));
@@ -140,10 +157,10 @@ struct while_helper
         return pts.try_emplace(& task.promise(), std::move(task)).first->second;
     }
 
-    auto on_suspend_then(atask<>::promise_type& p)
+    std::coroutine_handle<> on_suspend_then(atask<>::promise_type& p)
     {
         bool allDone = false;
-        
+
         {
             std::lock_guard lg(mtx);
 
@@ -167,6 +184,70 @@ struct while_helper
 };
 
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+atask<> while_task(auto& wh, auto& f, auto& collector, auto r)
+{
+    try
+    {
+        using atype = await_result_t<decltype(f(std::move(*r)))>;
+
+        std::exception_ptr ex = nullptr;
+
+        if constexpr(std::is_void_v<atype>)
+        {
+            try
+            {
+                co_await f(std::move(*r));
+            }
+            catch(...)
+            {
+                ex = std::current_exception();
+            }
+
+            if constexpr(_co_awaitable_<decltype(collector(ex))>)
+                co_await collector(ex);
+            else
+                collector(ex);
+        }
+        else
+        {
+            std::conditional_t<is_aresult_v<atype>, atype, std::optional<atype>> ar;
+
+            try
+            {
+                ar = co_await f(std::move(*r));
+            }
+            catch(...)
+            {
+                ex = std::current_exception();
+            }
+
+            if constexpr(_co_awaitable_<decltype(collector(ex, ar))>)
+                co_await collector(ex, std::move(ar));
+            else
+                collector(ex, std::move(ar));
+        }
+    }
+    catch(std::exception const& e)
+    {
+        JKL_WARN << "while_next(): unhandled exception: " << e.what();
+    }
+    catch(...)
+    {
+        JKL_WARN << "while_next(): unhandled unknown exception";
+    }
+
+    co_await suspend_awaiter([&](auto c)
+    {
+        return wh.on_suspend_then(c.promise());
+
+        // as we'll destroy the coro later, this lambda and its capture will also be deleted.
+        // so we store these pointers on stack (references may not work, as they are only alias)
+        //auto* wh_ = &wh;
+        //auto* wp_ = &wp;
+    });
+}
+
 // co_await f(T&&)
 // collector(std::exception_ptr from 'co_await f(T&&)' if any, decltype(co_await f(T&&))&& if not void)
 template<class T, class CoReturnType>
@@ -179,68 +260,7 @@ atask<CoReturnType> while_next(agen<T, CoReturnType> gen, auto f, auto collector
     while(auto r = co_await gen.template next<false>())
     {
         auto& task = wh.emplace(
-            [](auto& wh, auto& f, auto& collector, auto r) mutable -> atask<>
-            {
-                try
-                {
-                    using atype = await_result_t<decltype(f(std::move(*r)))>;
-
-                    std::exception_ptr ex = nullptr;
-                        
-                    if constexpr(is_void_v<atype>)
-                    {
-                        try
-                        {
-                            co_await f(std::move(*r));
-                        }
-                        catch(...)
-                        {
-                            ex = std::current_exception();
-                        }
-
-                        if constexpr(_co_awaitable_<decltype(collector(ex))>)
-                            co_await collector(ex);
-                        else
-                            collector(ex);
-                    }
-                    else
-                    {
-                        std::conditional_t<is_aresult_v<atype>, atype, std::optional<atype>> ar;
-
-                        try
-                        {
-                            ar = co_await f(std::move(*r));
-                        }
-                        catch(...)
-                        {
-                            ex = std::current_exception();
-                        }
-
-                        if constexpr(_co_awaitable_<decltype(collector(ex, ar))>)
-                            co_await collector(ex, std::move(ar));
-                        else
-                            collector(ex, std::move(ar));
-                    }
-                }
-                catch(std::exception const& e)
-                {
-                    JKL_WARN << "while_next(): unhandled exception: " << e.what();
-                }
-                catch(...)
-                {
-                    JKL_WARN << "while_next(): unhandled unknown exception";
-                }
-
-                co_await suspend_awaiter([&](auto c)
-                {
-                    return wh.on_suspend_then(c.promise());
-
-                    // as we'll destroy the coro later, this lambda and its capture will also be deleted.
-                    // so we store these pointers on stack (references may not work, as they are only alias)
-                    //auto* wh_ = &wh;
-                    //auto* wp_ = &wp;
-                });
-            }(wh, f, collector, std::move(r))
+            while_task(wh, f, collector, std::move(r))
         );
 
         task.start(wh.wp.get_stop_source());
@@ -253,7 +273,7 @@ atask<CoReturnType> while_next(agen<T, CoReturnType> gen, auto f, auto collector
             std::lock_guard lg(wh.mtx);
 
             BOOST_ASSERT(! wh.wpSuspended);
-                
+
             if(wh.pts.empty()) // all task already finished, so we should co_return here.
                co_return gen.promise().result(); // may also throw (then be captured by wh.wp.unhandled_exception())
 
@@ -267,8 +287,8 @@ atask<CoReturnType> while_next(agen<T, CoReturnType> gen, auto f, auto collector
 }
 
 
-template<class T = void>
-atask<T> while_next(auto&& gen, auto&& f)
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+auto while_next(auto&& gen, auto&& f)
 {
     return while_next(JKL_FORWARD(gen), JKL_FORWARD(f), [](auto&&...){});
 }

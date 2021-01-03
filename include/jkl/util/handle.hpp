@@ -19,11 +19,11 @@ struct no_copier{};
 // like std::unique_ptr but allow any handle like type
 // and also copyable if provide a copier.
 template<
-    _pod_ Handle,
+    class Handle,
     class Deleter,
     class Copier,
     auto  Null = Handle{}
->
+> requires(_trivially_copyable_<Handle> && std::constructible_from<Handle, decltype(Null)>)
 class handle_t
 {
     Handle _h{Null};

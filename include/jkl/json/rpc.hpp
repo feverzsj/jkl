@@ -1,7 +1,7 @@
 #pragma once
 
 
-namespace jkdf::json{
+namespace jkl::json{
 
     // request json:
     // [method, {p1: v1, p2: v2, ...}] or
@@ -53,4 +53,4 @@ namespace jkdf::json{
     }
 
 
-} // namespace jkdf::json
+} // namespace jkl::json

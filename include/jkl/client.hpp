@@ -11,7 +11,6 @@
 #include <jkl/curl/multi.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/steady_timer.hpp>
-#include <boost/asio/io_context_strand.hpp>
 #include <boost/beast/http/parser.hpp>
 #include <boost/beast/http/empty_body.hpp>
 #include <boost/beast/http/string_body.hpp>
@@ -29,22 +28,105 @@ class curl_fields : public curlist
 public:
     curl_fields() = default;
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curl_fields(auto const&... kvs) { append_field(kvs...); };
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     void append_field1(_str_ auto const& k, _str_ auto const& v)
     {
         curlist::append1(cat_as_str(k, ": ", v));
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     void append_field1(beast::http::field k, _str_ auto const& v)
     {
         append_field1(beast::http::to_string(k), v);
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     void append_field(auto const& k, _str_ auto const& v, auto const&... kvs)
     {
         append_field1(k, v);
         append_field(kvs...);
+    }
+};
+
+
+template<bool ReadSome, class B>
+class cr_buf_wrapper
+{
+public:
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    explicit cr_buf_wrapper(auto&&){}
+    static consteval bool is_buf() { return false; }
+};
+
+template<bool ReadSome, _byte_buf_ B>
+class cr_buf_wrapper<ReadSome, B>
+{
+    static constexpr bool is_resizable_buf = _resizable_buf_<B>;
+
+    lref_or_val_t<B> _b;
+
+    JKL_DEF_MEMBER_IF((ReadSome || ! is_resizable_buf), size_t, _curSize) = 0;
+
+public:
+    explicit cr_buf_wrapper(B&& t) : _b(std::forward<B>(t)) {}
+
+    static consteval bool is_buf() { return true; }
+    static consteval bool is_resizable() { return is_resizable_buf; }
+
+    auto* data() noexcept { return buf_data(_b); }
+
+    size_t size() const noexcept
+    {
+        if constexpr(ReadSome || ! is_resizable_buf)
+            return _curSize;
+        else // if constexpr(! ReadSome && is_resizable_buf)
+            return buf_size(_b);
+    }
+
+    void clear() noexcept
+    {
+        if constexpr(ReadSome || ! is_resizable_buf)
+            _curSize = 0;
+        else // if constexpr(! ReadSome && is_resizable_buf)
+            clear_buf(_b);
+    }
+
+    void remove_suffix(size_t n)
+    {
+        BOOST_ASSERT(n <= size());
+
+        if constexpr(ReadSome || ! is_resizable_buf)
+            _curSize -= n;
+        else // if constexpr(! ReadSome && is_resizable_buf)
+            resize_buf(_b, buf_size(_b) - n);
+    }
+
+    auto append(char* d, size_t n)
+    {
+        if constexpr(ReadSome)
+        {
+            size_t avl = buf_size(_b) - _curSize;
+            n = std::min(avl, n);
+            memcpy(buf_data(_b) + _curSize, d, n);
+            _curSize += n;
+            return n;
+        }
+        else if constexpr(! is_resizable_buf)
+        {
+            if(_curSize + n > buf_size(_b))
+                return false;
+            memcpy(buf_data(_b) + _curSize, d, n);
+            _curSize += n;
+            return true;
+        }
+        else // if constexpr(! ReadSome && is_resizable_buf)
+        {
+            memcpy(buy_buf(_b, n), d, n);
+            return true;
+        }
     }
 };
 
@@ -67,35 +149,58 @@ class curl_client
 
     struct socket_data
     {
-        typename asio::ip::tcp::socket::rebind_executor<asio::io_context::strand>::other skt;
+        asio::ip::tcp::socket skt;
         curl_socket_t cskt = 0;
         int acts = 0;
+        size_t id = 0;
 
-        explicit socket_data(asio::io_context::strand const& ex, curl_socket_t s, aerror_code& ec) noexcept
-            : skt{ex}, cskt{s}
+        explicit socket_data(asio::io_context& ioc) noexcept
+            : skt{ioc}
+        {}
+
+        ~socket_data() { release(); }
+
+        // since we write out dtor, move control won't be implicitly-declared
+        socket_data(socket_data&&) = default;
+        socket_data& operator=(socket_data&&) = default;
+
+        bool hold_socket() const { return skt.is_open(); }
+
+        aerror_code assign(curl_socket_t s) noexcept
         {
-            sockaddr  sa = { .sa_family = AF_UNSPEC };
+            BOOST_ASSERT(! hold_socket());
+
+            cskt = s;
+
+            sockaddr  sa  = { .sa_family = AF_UNSPEC };
             socklen_t len = sizeof(sa);
 
-            BOOST_VERIFY(getsockname(s, &sa, &len) == 0);
+            if(getsockname(s, &sa, &len) != 0)
+                return aerror_code{errno, boost::system::generic_category()};
 
-            switch(sa.sa_family)
-            {
-                case AF_INET:
-                    skt.assign(asio::ip::tcp::v4(), s, ec);
-                    break;
-                case AF_INET6:
-                    skt.assign(asio::ip::tcp::v6(), s, ec);
-                    break;
-                default:
-                    ec = make_error_code(aerrc::address_family_not_supported);
-            }
+            aerror_code ec = make_error_code(aerrc::address_family_not_supported);
+
+            if(     AF_INET  == sa.sa_family) skt.assign(asio::ip::tcp::v4(), s, ec);
+            else if(AF_INET6 == sa.sa_family) skt.assign(asio::ip::tcp::v6(), s, ec);
+
+            return ec;
         }
 
-        ~socket_data()
+        // also cancel all outstanding action
+        // socket open/close are left to curl
+        // we can use CURLOPT_OPENSOCKETFUNCTION/CURLOPT_CLOSESOCKETFUNCTION, but they are unstable.
+        aerror_code release()
         {
             aerror_code ec;
-            skt.shutdown(asio::socket_base::shutdown_both, ec);
+
+            if(hold_socket())
+            {
+                skt.release(ec);
+                cskt = 0;
+                acts = 0;
+            }
+
+            return ec;
         }
     };
 
@@ -104,74 +209,75 @@ public:
     {
         friend class curl_client;
 
+        struct data_awaiter_base
+        {
+            curl_request&           _cr;
+            std::coroutine_handle<> _coro;
+            aerror_code             _ec;
+
+            explicit data_awaiter_base(curl_request& cr) : _cr{cr} {}
+        };
+
         curl_client& _cl;
         curl_easy    _easy;
-        socket_data* _sd = nullptr;
 
         curl_fields _fields;
         //char errBuf[CURL_ERROR_SIZE] = {};
 
-        aerror_code* _wec = nullptr; // pointer to data_awaiter's _ec
-        std::coroutine_handle<> _coro;
-        std::shared_ptr<std::atomic_flag> _resumed = std::make_shared<std::atomic_flag>();
-
-        std::unique_ptr<std::atomic<state_e>> _state = std::make_unique<std::atomic<state_e>>(state_reseted);
-        // ^^^^^^^^^^^^ make std::atomic moveable
+        data_awaiter_base* _aw = nullptr;
+        state_e _state = state_reseted;
 
         enum pause_type{ pause_type_none, pause_type_hd, pause_type_wd };
         pause_type _pauseType = pause_type_none;
         size_t _writeCbDataUsed = 0;
 
-        aerror_code& awaiter_ec() { BOOST_ASSERT(_wec); return *_wec; };
+        aerror_code& awaiter_ec() { BOOST_ASSERT(_aw); return _aw->_ec; };
+        std::coroutine_handle<> awaiter_coro() const { BOOST_ASSERT(_aw); return _aw->_coro; };
 
-        state_e get_state(std::memory_order order = std::memory_order_relaxed) const
+        state_e get_state(std::memory_order order = std::memory_order_relaxed) noexcept
         {
-            BOOST_ASSERT(_state);
-            return _state->load(order);
+            return std::atomic_ref{_state}.load(order);
         }
 
-        void set_state(state_e s, std::memory_order order = std::memory_order_relaxed)
+        void set_state(state_e s, std::memory_order order = std::memory_order_relaxed) noexcept
         {
-            BOOST_ASSERT(_state);
-            _state->store(s, order);
+            std::atomic_ref{_state}.store(s, order);
         }
 
         void async_resume_coro()
         {
-            // coro should not be resumed on _cl._strand
-            _cl.ioc_post([this](){ _coro.resume(); });
+            _cl.ioc_post([this](){ awaiter_coro().resume(); });
         }
 
-        void try_schedule_remove_and_resume(aerror_code const& ec)
+        // should already inside critical section when get called
+        void try_remove_and_schedule_resume(aerror_code const& ec)
         {
-            if(_resumed->test_and_set(std::memory_order_relaxed))
-                return;
+            BOOST_ASSERT(get_state() == state_running);
 
             if(! awaiter_ec())
                 awaiter_ec() = ec;
 
-            _cl.strand_post([this](){
-                BOOST_ASSERT(get_state() == state_running);
-                _cl._multi.remove(_easy).throw_on_error();
-                set_state(state_finished);
-                async_resume_coro();
-            });
+            _cl._multi.remove(_easy).throw_on_error();
+
+            set_state(state_finished);
+
+            async_resume_coro();
         }
 
         template<pause_type PauseType> requires(PauseType != pause_type_none)
         void try_mark_pause_and_schedule_resume(size_t used)
         {
-            if(_resumed->test_and_set(std::memory_order_relaxed))
-                return;
-
             BOOST_ASSERT(is_runnning_state(get_state()));
             _pauseType = PauseType;
             _writeCbDataUsed = used;
             set_state(state_paused);
 
             BOOST_ASSERT(! awaiter_ec());
-            // must be serialized, as curl is still in action.
-            _cl.strand_post([this](){ async_resume_coro(); });
+
+            _cl.ioc_post([this](){
+                std::lock_guard lg{_cl._mtx}; // must be serialized, as curl may be still running when this get invoked.
+                async_resume_coro();
+            });
         }
 
         template<pause_type PauseType> requires(PauseType != pause_type_none)
@@ -196,24 +302,19 @@ public:
         {
             BOOST_ASSERT(is_removed_state(get_state()));
 
-            _coro = nullptr;
-            _wec = nullptr;
-            _resumed->clear(std::memory_order_relaxed);
-
             reset_fields();
 
             _easy.reset_opts();
 
             _easy.setopts(
+                curlopt::nosignal,
                 curlopt::priv_data(this),
                 //curlopt::errbuf(errBuf),
                 curlopt::followlocation,
                 curlopt::suppress_connect_headers,
-                curlopt::writefunc([](char*, size_t size, size_t nmemb, void*) -> size_t { return size * nmemb; })
-                //curlopt::headerfunc([](char*, size_t size, size_t nmemb, void*) -> size_t { return size * nmemb; })
+                curlopt::disbale_write_cb
+                //,curlopt::disbale_header_cb
             );
-
-            _sd = nullptr;
 
             _pauseType = pause_type_none;
             _writeCbDataUsed = 0;
@@ -222,11 +323,16 @@ public:
             _cl.apply_default_opts(*this);
         }
 
-        void begin_await()
+        void on_recycle()
         {
-            _coro = nullptr;
-            _wec = nullptr;
-            _resumed->clear(std::memory_order_relaxed);
+            if(is_paused_state(get_state()))
+            {
+                std::lock_guard lg{_cl._mtx};
+                _cl._multi.remove(_easy).throw_on_error();
+                set_state(state_finished);
+            }
+
+            reset_all();
         }
 
         enum read_type
@@ -240,101 +346,36 @@ public:
             read_type_wd_until_hd,
         };
 
-        template<bool ReadSome, class B>
-        class buf_wrapper
-        {
-        public:
-            static consteval bool is_buf() { return false; }
-        };
-
-        template<bool ReadSome, _byte_buf_ B>
-        class buf_wrapper<ReadSome, B>
-        {
-            static constexpr bool is_resizable_buf = _resizable_buf_<B>;
-
-            lref_or_val_t<B> _b;
-
-            [[no_unique_address]] not_null_if_t<ReadSome || ! is_resizable_buf,
-                size_t> _curSize{0};
-
-        public:
-            explicit buf_wrapper(B&& t) : _b(std::forward<B>(t)) {}
-
-            static consteval bool is_buf() { return true; }
-            static consteval bool is_resizable() { return is_resizable_buf; }
-
-            auto* data() noexcept { return buf_data(_b); }
-
-            size_t size() const noexcept
-            {
-                if constexpr(ReadSome || ! is_resizable_buf)
-                    return _curSize;
-                else // if constexpr(! ReadSome && is_resizable_buf)
-                    return buf_size(_b);
-            }
-
-            void clear() noexcept
-            {
-                if constexpr(ReadSome || ! is_resizable_buf)
-                    _curSize = 0;
-                else // if constexpr(! ReadSome && is_resizable_buf)
-                    clear_buf(_b);
-            }
-
-            void remove_suffix(size_t n)
-            {
-                BOOST_ASSERT(n <= size());
-
-                if constexpr(ReadSome || ! is_resizable_buf)
-                    _curSize -= n;
-                else // if constexpr(! ReadSome && is_resizable_buf)
-                    resize_buf(_b, buf_size(_b) - n);
-            }
-
-            auto append(char* d, size_t n)
-            {
-                if constexpr(ReadSome)
-                {
-                    size_t avl = buf_size(_b) - _curSize;
-                    n = std::min(avl, n);
-                    memcpy(buf_data(_b) + _curSize, d, n);
-                    _curSize += n;
-                    return n;
-                }
-                else if constexpr(! is_resizable_buf)
-                {
-                    if(_curSize + n > buf_size(_b))
-                        return false;
-                    memcpy(buf_data(_b) + _curSize, d, n);
-                    _curSize += n;
-                    return true;
-                }
-                else // if constexpr(! ReadSome && is_resizable_buf)
-                {
-                    memcpy(buy_buf(_b, n), d, n);
-                    return true;
-                }
-            }
-        };
 
         // curl will pass multiple responses to write_cb/header_cb when following redirects or tunneling.
         // tunneling headers can be suppressed with CURLOPT_SUPPRESS_CONNECT_HEADERS.
         // in other cases, we suppose there could be header only responses before the last response.
         // we'll skip intermediate responses and return only the last response.
-        template<read_type RT, _byte_buf_ B, _byte_buf_ B2, unsigned ReadSomeBits, bool EnableStop>
-            requires(ReadSomeBits < 4) // bits of bufs to read some to: 0 for none, 1 for B, 2 for B2, 3 for all
-        class data_awaiter
+        template<read_type RT, _byte_buf_ B, class B2, unsigned ReadSomeBits, bool EnableStop>
+        class data_awaiter : private data_awaiter_base
         {
-            curl_request& _cr;
-            aerror_code   _ec;
+            cr_buf_wrapper<ReadSomeBits & 1, B> _bw;
+            [[no_unique_address]] cr_buf_wrapper<(ReadSomeBits & 2) != 0, B2> _bw2;
 
-            [[no_unique_address]]
-            not_null_if_t<
-                EnableStop, std::optional<std::stop_callback<std::function<void()>>>
-            > _stopCb;
+            JKL_DEF_MEMBER_IF(EnableStop, optional_stop_callback<>, _stopCb       );
+            JKL_DEF_MEMBER_IF(EnableStop, bool                    , _stopRequested) = false;
 
-            buf_wrapper<ReadSomeBits & 1, B> _bw;
-            [[no_unique_address]] buf_wrapper<ReadSomeBits & 2, B2> _bw2;
+            constexpr bool exam_stop()
+            {
+                if constexpr(EnableStop)
+                {
+                    return false;
+                }
+                else
+                {
+                    if(std::atomic_ref{_stopRequested}.load(std::memory_order_relaxed))
+                    {
+                        _ec = asio::error::operation_aborted;
+                        return true;
+                    }
+                    return false;
+                }
+            }
 
             template<size_t I> requires(I < 3)
             auto& get_bw() noexcept
@@ -349,6 +390,10 @@ public:
             static size_t resumed_write_to_bw(char* d, size_t size, size_t nmemb, void* wd)
             {
                 data_awaiter* w = reinterpret_cast<data_awaiter*>(wd);
+
+                if(w->exam_stop())
+                    return -1;
+
                 size_t n = size * nmemb;
 
                 if(n == 0)
@@ -369,7 +414,7 @@ public:
 
                     if(copied < m)
                     {
-                        w->_cr.try_mark_pause_and_schedule_resume<PauseType>(copied);
+                        w->_cr.template try_mark_pause_and_schedule_resume<PauseType>(copied);
                         return CURL_WRITEFUNC_PAUSE;
                     }
                 }
@@ -389,24 +434,21 @@ public:
             static size_t pause_when_called(char* /*d*/, size_t size, size_t nmemb, void* wd)
             {
                 data_awaiter* w = reinterpret_cast<data_awaiter*>(wd);
+
+                if(w->exam_stop())
+                    return -1;
+
                 size_t n = size * nmemb;
 
                 if(n == 0)
                     return n;
 
-                w->_cr.try_mark_pause_and_schedule_resume<PauseType>(0);
+                w->_cr.template try_mark_pause_and_schedule_resume<PauseType>(0);
                 return CURL_WRITEFUNC_PAUSE;
             }
 
-            bool init(state_e const st)
+            bool init()
             {
-                BOOST_ASSERT(is_removed_state(st) || is_paused_state(st));
-                //if(! (is_removed_state(st) || is_paused_state(st)))
-                //{
-                //    _ec = aerrc::operation_not_permitted;
-                //    return false;
-                //}
-
                 _bw.clear();
 
                 if constexpr(RT == read_type_hd_wd)
@@ -432,13 +474,15 @@ public:
                 {
                     _cr.clear_pause_if_not<pause_type_hd>();
                     _cr._easy.setopts(
-                        curlopt::header_cb(resumed_write_to_bw<1, pause_type_hd>, this)
+                        curlopt::header_cb(resumed_write_to_bw<1, pause_type_hd>, this),
+                        curlopt::disbale_write_cb
                     );
                 }
                 else if constexpr(RT == read_type_wd)
                 {
                     _cr.clear_pause_if_not<pause_type_wd>();
                     _cr._easy.setopts(
+                        curlopt::disbale_header_cb,
                         curlopt::write_cb(resumed_write_to_bw<1, pause_type_wd>, this)
                     );
                 }
@@ -449,20 +493,22 @@ public:
                             [](char* d, size_t size, size_t nmemb, void* wd) -> size_t
                             {
                                 // to skip paused wd before first hd, we set the write_cb when header_cb is called.
-                                reinterpret_cast<data_awaiter*>(wd)->_cr.setopt(curlopt::write_cb(pause_when_called, wd));
+                                reinterpret_cast<data_awaiter*>(wd)->_cr.opts(curlopt::write_cb(pause_when_called<pause_type_hd>, wd));
                                 return resumed_write_to_bw<1, pause_type_hd>(d, size, nmemb, wd);
                             },
-                            this)
+                            this),
+                        curlopt::disbale_write_cb
                     );
                 }
                 else if constexpr(RT == read_type_wd_until_hd)
                 {
                     _cr._easy.setopts(
+                        curlopt::disbale_header_cb,
                         curlopt::write_cb(
                             [](char* d, size_t size, size_t nmemb, void* wd) -> size_t
                             {
                                 // to skip paused hd before first wd, we set the header_cb when write_cb is called.
-                                reinterpret_cast<data_awaiter*>(wd)->_cr.setopt(curlopt::header_cb(pause_when_called, wd));
+                                reinterpret_cast<data_awaiter*>(wd)->_cr.opts(curlopt::header_cb(pause_when_called<pause_type_wd>, wd));
                                 return resumed_write_to_bw<1, pause_type_wd>(d, size, nmemb, wd);
                             },
                             this)
@@ -477,33 +523,17 @@ public:
                 if constexpr(decltype(_bw2)::is_buf())
                 {
                     return aresult<std::pair<size_t, size_t>>(_ec, _bw.size(), _bw2.size());
-
-                    // if constexpr(_bw.is_resizable() && _bw2.is_resizable())
-                    //     return aresult<>(_ec);
-                    // else if constexpr(_bw.is_resizable() && ! _bw2.is_resizable())
-                    //     return aresult<size_t>(_ec, _bw.size());
-                    // else if constexpr(! _bw.is_resizable() && _bw2.is_resizable())
-                    //     return aresult<size_t>(_ec, _bw2.size());
-                    // else
-                    //     return aresult<std::pair<size_t, size_t>>(_ec, _bw.size(), _bw2.size());
                 }
                 else
                 {
                     return aresult<size_t>(_ec, _bw.size());
-
-                    // if constexpr(_bw.is_resizable())
-                    //     return aresult<>(_ec);
-                    // else
-                    //     return aresult<size_t>(_ec, _bw.size());
                 }
             }
 
         public:
             data_awaiter(curl_request& cr, B&& b, B2&& b2)
-                : _cr(cr), _bw(std::forward<B>(b)), _bw2(std::forward<B2>(b2))
-            {
-                _cr.begin_await();
-            }
+                : data_awaiter_base{cr}, _bw{JKL_FORWARD(b)}, _bw2{JKL_FORWARD(b2)}
+            {}
 
             bool await_ready() const noexcept { return false; }
 
@@ -521,74 +551,72 @@ public:
 
                 state_e const st = _cr.get_state();
 
-                if(! init(st))
+                BOOST_ASSERT(is_removed_state(st) || is_paused_state(st));
+                //if(! (is_removed_state(st) || is_paused_state(st)))
+                //{
+                //    _ec = aerrc::operation_not_permitted;
+                //    return false;
+                //}
+
+                //std::lock_guard lg{_cr._cl._mtx};
+
+                if(! init())
                     return false;
 
-                _cr._wec = &_ec;
-                _cr._coro = c;
+                _coro = c;
+                BOOST_ASSERT(! _cr._aw);
+                _cr._aw = this; // don't put this in ctor, awaiter may be moved
 
                 // start or unpause the request
-                _cr._cl.strand_post([=, this](){
-
-                    if(is_removed_state(st))
-                        _ec = _cr._cl._multi.add(_cr._easy).error(); // will set a time-out to trigger very soon
-                    else
-                        _ec = _cr._easy.pause(CURLPAUSE_CONT).error(); // unpause all
-
-                    if(_ec)
-                    {
-                        _cr.async_resume_coro();
-                        return;
-                    }
+                {
+                    std::lock_guard lg{_cr._cl._mtx};
 
                     _cr.set_state(state_running);
 
-                    if constexpr(EnableStop)
-                    {
-                        BOOST_ASSERT(! _stopCb);
-                        _stopCb.emplace(c.promise().get_stop_token(),
-                            [this, resumed = _cr._resumed]()
-                            {
-                                if(resumed->test_and_set(std::memory_order_relaxed))
-                                    return;
+                    if(is_removed_state(st))
+                        _ec = _cr._cl._multi.add(_cr._easy).error(); // will set a time-out to trigger very soon
+                    else // if(is_paused_state(st))
+                        _ec = _cr._easy.pause(CURLPAUSE_CONT).error(); // unpause all, NOTE: header_cb/write_cb will be called in this if there are remain data
+                }                    // ^^^^^: will also use multi, so lock it.
 
-                                _cr._cl.strand_post([this](){
-                                    if(_cr._sd)
-                                    {
-                                        BOOST_ASSERT(_cr._sd->acts);
-                                        _cr._sd->acts = 0;
-                                        _cr._sd->skt.cancel();
-                                        _cr._sd = nullptr;
-                                    }
+                if(_ec)
+                {
+                    _cr.set_state(st);
+                    _cr.async_resume_coro();
+                    return false;
+                }
 
-                                    _cr._cl._multi.remove(_cr._easy).throw_on_error();
-                                    _cr.set_state(state_finished);
+                if constexpr(EnableStop)
+                {
+                    BOOST_ASSERT(! _stopCb);
+                    BOOST_ASSERT(! _stopRequested);
 
-                                    _ec = asio::error::operation_aborted;
-                                    _cr.async_resume_coro();
-                                });
-                            }
-                        );
-                    }
-                });
+                    _stopCb.emplace(c.promise().get_stop_token(),
+                        [this]()
+                        {
+                            std::atomic_ref{_stopRequested}.store(true, std::memory_order_relaxed);
+                        }
+                    );
+                }
 
                 return true;
             }
 
             auto await_resume()
             {
+                _cr._aw = nullptr; // don't put this in dtor, awaiter may be moved
                 //BOOST_ASSERT(is_removed_state(_cr.get_state()));
                 return get_result();
             }
         };
 
         template<read_type RT>
-        auto do_read_data2(_byte_buf_ auto&& b1, _byte_buf_ auto&& b2, auto... p)
+        auto do_read_data2(_byte_buf_ auto&& b1, auto&& b2, auto... p)
         {
             auto params = make_params(p..., p_read_some_none, p_disable_stop);
 
             return data_awaiter<
-                RT, B1, B2, params(t_read_some), params(t_stop_enabled)
+                RT, decltype(b1), decltype(b2), params(t_read_some), params(t_stop_enabled)
             >
             (*this, JKL_FORWARD(b1), JKL_FORWARD(b2));
         }
@@ -600,6 +628,7 @@ public:
         }
 
         // this only insert name value into fields, while beast.http.parser will also set other members in header
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         static aresult<> parse_fields(_byte_buf_ auto const& in, auto& fields)
         {
             aerror_code ec;
@@ -636,7 +665,7 @@ public:
         //      [trailer header fields] \r\n
         //      \r\n
         template<bool IsRequest, class Fields>
-        static aresult<> parse_header_trailer(_byte_buf_ auto const& b,  http_header<IsRequest, Fields>& h)
+        static aresult<> parse_header_trailer(_byte_buf_ auto const& b,  beast::http::header<IsRequest, Fields>& h)
         {
             string_view bv{buf_data(b), buf_size(b)};
 
@@ -686,7 +715,7 @@ public:
         }
 
         template<class Body, class Fields>
-        static aresult<> fill_response_body(_byte_buf_ auto const& b, http_response_t<Body, Fields>& m)
+        static aresult<> fill_response_body(_byte_buf_ auto const& b, beast::http::response<Body, Fields>& m)
         {
             typename Body::reader r(m.base(), m.body());
 
@@ -706,9 +735,9 @@ public:
 
     public:
         explicit curl_request(curl_client& cl)
-            : _cl(cl)
+            : _cl{cl}
         {
-            // reset_all(); should be called in pool.on_acquire
+            // reset_all(); should called when creating and recycling in res_pool
         }
 
     #ifndef NDEBUG
@@ -718,31 +747,35 @@ public:
         }
 
         // since we write out dtor, move control won't be implicitly-declared
-        curl_request(curl_request&& r) = default;
+        curl_request(curl_request&&) = default;
         //curl_request& operator=(curl_request&&) = default;
     #endif
 
         // still need to check returned error from co_awaited result
-        bool finished() const noexcept { return is_finished_state(get_state()); }
+        bool finished() noexcept { return is_finished_state(get_state()); }
 
         // curlinfo::
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto info(auto const& t) { return _easy.info(t); }
 
         auto last_response_code() { return _easy.info(curlinfo::response_code); }
 
         // curlopt::
         // NOTE: some opts are preserved by this class
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto& opts(auto&&... t)
         {
             _easy.setopts(JKL_FORWARD(t)...);
             return *this;
         }
 
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto& proxy(_str_ auto const& u)
         {
             return opts(curlopt::proxy(u));
         }
 
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto& no_proxy_list(auto const& us) // should be a range of str
         {
             string l;
@@ -767,13 +800,19 @@ public:
         //       decoding will be applied to original content received with Content-Encoding/Transfer-Encoding header fields.
 
         // co_await result is aresult<size_t>, for actual read size
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto read_hd         (_byte_buf_ auto&& b, auto... p) { return do_read_data<read_type_hd         >(JKL_FORWARD(b), p...); }
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto read_wd         (_byte_buf_ auto&& b, auto... p) { return do_read_data<read_type_wd         >(JKL_FORWARD(b), p...); }
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto read_hd_until_wd(_byte_buf_ auto&& b, auto... p) { return do_read_data<read_type_hd_until_wd>(JKL_FORWARD(b), p...); }
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto read_wd_until_hd(_byte_buf_ auto&& b, auto... p) { return do_read_data<read_type_wd_until_hd>(JKL_FORWARD(b), p...); }
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto read_hd_wd      (_byte_buf_ auto&& b, auto... p) { return do_read_data<read_type_hd_wd      >(JKL_FORWARD(b), p...); }
 
         // co_await result is aresult<std::pair<size_t, size_t>>, for actual read size
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto read_hd_wd(_byte_buf_ auto&& hd, _byte_buf_ auto&& wd, auto... p)
         {
             return do_read_data2<read_type_hd_wd>(JKL_FORWARD(hd), JKL_FORWARD(wd), p...);
@@ -790,22 +829,29 @@ public:
             return *this;
         }
 
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto& method(_str_ auto const& s) { return opts(curlopt::customrequest(s)); }
         auto& method(beast::http::verb v) { return method(beast::http::to_string(v)); }
 
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto& get (auto const& u) { return method("GET" ).target(u); }
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto& put (auto const& u) { return method("PUT" ).target(u); }
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto& post(auto const& u) { return method("POST").target(u); }
 
         // can be string or curlu
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto& target(auto const& u) { return opts(curlopt::url(u)); }
 
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto& field_line(auto&&... lines) // string or curlist
         {
             _fields.append(JKL_FORWARD(lines)...);
             return *this;
         }
 
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto& field(auto const&... kvs)
         {
             _fields.append_field(kvs...);
@@ -834,10 +880,14 @@ public:
         //       "Content-Type" can only be overridden with other value
         //       "Expect" can be removed with a header line "Expect:", which has been done in reset_headers();
 
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto& body_ref(_byte_buf_ auto      & b) { return opts(curlopt::postfields(b)); }
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto& body    (_byte_buf_ auto const& b) { return opts(curlopt::copypostfields(b)); }
 
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto& str_body_ref(_str_ auto      & s) { return body_ref(as_str_class(s)); }
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto& str_body    (_str_ auto const& s) { return body(as_str_class(s)); }
 
 
@@ -846,6 +896,7 @@ public:
         //          a trailer may follow. After the trailer, the transfer should complete.
 
         // you can keep on read body, if any.
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         aresult_task<> read_header(auto& h, auto... p)
         {
             string hd;
@@ -855,6 +906,7 @@ public:
 
         // b can be used with p_read_some
         // you can directly read_body(), without read_header()
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto read_body(_byte_buf_ auto&& b, auto... p)
         {
             return read_wd(JKL_FORWARD(b), p...);
@@ -871,6 +923,7 @@ public:
 
         // b can be used with p_read_some
         // trailer is allowed(hd after wd).
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         aresult_task<> read_response(auto& h, _byte_buf_ auto&& b, auto... p)
         {
             string hd;
@@ -878,6 +931,7 @@ public:
             co_return parse_header_trailer(hd, h);
         }
 
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
         auto read_response(auto& msg, auto... p)
         {
             return read_response(msg.base(), msg.body(), p...);
@@ -919,33 +973,44 @@ public:
     };
 
 private:
-    // NOTE: all curl callbacks, anything involving _multi, _easy should go through _strand
+    // NOTE: all curl callbacks, anything involving _multi, state_running _easy should inside critical section
+    std::mutex         _mtx;
     asio::io_context&  _ioc;
-    asio::io_context::strand _strand{_ioc}; // mutex could lock multiple threads under high contention, while strand would minimize that.
-                                            // Strand may add some (slight?) latency, since the extra cost and
-                                            // it still need be executed on the underlying executor.
-                                            // In general, mutex is preferred when the contention is low(short critical section, low concurrency, etc.)
-                                            // or (extremely?) low latency is necessary. Strand is preferred, when the contention is high and you don't want
-                                            // to block other threads for too long and the extra latency is acceptable.
-    typename asio::steady_timer::rebind_executor<asio::io_context::strand>::other _timer{_strand};
+    asio::steady_timer _timer{_ioc};
 
-    curl_multi _multi;
-    unordered_flat_set<std::unique_ptr<socket_data>> _sds;
+    curl_multi             _multi;
     res_pool<curl_request> _pool;
+    unordered_auto_map<curl_socket_t, socket_data> _sds;
+    size_t _idSeq = 0;
 
-    void ioc_post   (auto&& f) { asio::post(_ioc   , JKL_FORWARD(f)); }
-    void strand_post(auto&& f) { asio::post(_strand, JKL_FORWARD(f)); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    void ioc_post(auto&& f) { asio::post(_ioc   , JKL_FORWARD(f)); }
+
+    static curl_request& get_curl_request(CURL* e)
+    {
+        BOOST_ASSERT(e);
+        curl_easy ce{e};
+        curl_request* cr = ce.priv_data<curl_request*>();
+        ce.release();
+        BOOST_ASSERT(cr);
+        return *cr;
+    }
 
     int process_socket_action(curl_socket_t cskt, int acts)
+    {
+        std::lock_guard lg{_mtx};
+        return process_socket_action_nolock(cskt, acts);
+    }
+
+    int process_socket_action_nolock(curl_socket_t cskt, int acts)
     {
         //                        vvvvvvvvvvvvv invokes other curl callbacks
         int stillRunning = _multi.socket_action(cskt, acts).value_or_throw();
 
         while(auto msg = _multi.next_done())
         {
-            curl_request* cr = msg->easy.priv_data<curl_request*>();
-            msg->easy.release();
-            cr->try_schedule_remove_and_resume(msg->err);
+            get_curl_request(msg.easy)
+                .try_remove_and_schedule_resume(msg.err);
         }
 
         if(stillRunning <= 0)
@@ -954,51 +1019,51 @@ private:
         return stillRunning;
     }
 
-    void event_cb(curl_request* cr, socket_data* sd, aerror_code const& ec, int act)
+    // single action (read/in or write/out) process chain
+    void event_cb(size_t id, aerror_code const& ec, curl_socket_t cskt, int act)
     {
-        if(ec == asio::error::operation_aborted || ! cr->_sd)
-            return;
-
-        BOOST_ASSERT(cr->_sd == sd);
-        BOOST_ASSERT(sd->acts & act);
-
-        int stillRunning = process_socket_action(sd->cskt, ec ? CURL_CSELECT_ERR : act);
-
-        if(ec || ! stillRunning)
-        {
-            sd->acts &= ~act;
-
-            if(! sd->acts)
-                cr->_sd = nullptr;
-
-            return;
-        }
-
-        if(! _sds.contains(sd)) // sd may be removed in _multi.socket_action() -> multi_sock_cb()
-            return;
-
         BOOST_ASSERT(act == CURL_POLL_IN || act == CURL_POLL_OUT);
 
-        if(act == CURL_POLL_IN)
-            sd->skt.async_wait(asio::socket_base::wait_read, [this, cr, sd](auto&& ec){
-                event_cb(cr, sd, ec, CURL_POLL_IN);
-            });
-        else // if(act == CURL_POLL_OUT)
-            sd->skt.async_wait(asio::socket_base::wait_write, [this, cr, sd](auto&& ec){
-                event_cb(cr, sd, ec, CURL_POLL_OUT);
-            });
+        if(ec == asio::error::operation_aborted)
+            return;
+
+        std::lock_guard lg{_mtx};
+
+        int stillRunning = process_socket_action_nolock(cskt, ec ? CURL_CSELECT_ERR : act); // -> _multi.socket_action() -> multi_sock_cb()
+
+        if(ec || ! stillRunning)
+            return;
+
+        // sd may be removed(and possibly the same file descriptor is immediataly reused) indirectly by process_socket_action_nolock()
+        
+        // check if still the same sd
+
+        auto it = _sds.find(cskt);
+
+        if(it == _sds.end() || it->second.id != id)
+            return;
+
+        socket_data& sd = it->second;
+
+        if(sd.acts & act)
+        {
+            if(act == CURL_POLL_IN)
+                sd.skt.async_wait(asio::socket_base::wait_read, [&, id = sd.id, cskt](auto&& ec){
+                    event_cb(id, ec, cskt, CURL_POLL_IN);
+                });
+            else // if(act == CURL_POLL_OUT)
+                sd.skt.async_wait(asio::socket_base::wait_write, [&, id = sd.id, cskt](auto&& ec){
+                    event_cb(id, ec, cskt, CURL_POLL_OUT);
+                });
+        }
     }
 
-    static int multi_sock_cb(CURL* e, curl_socket_t cskt, int acts, void* cbp, void* sockp)
+    // should already inside critical section when get called
+    static int multi_sock_cb(CURL* e, curl_socket_t cskt, int acts, void* cbp, void* /*sockp*/)
     {
-        curl_easy ce(e);
-        auto* cr = ce.priv_data<curl_request*>();
-        ce.release();
-
-        auto* cl = reinterpret_cast<curl_client*>(cbp);
-        auto* sd = reinterpret_cast<socket_data*>(sockp);
-
-        aerror_code ec;
+        BOOST_ASSERT(cbp);
+        curl_client&  cl = *reinterpret_cast<curl_client*>(cbp);
+        curl_request& cr = get_curl_request(e);
 
         switch(acts)
         {
@@ -1006,84 +1071,68 @@ private:
             case CURL_POLL_OUT:
             case CURL_POLL_INOUT:
                 {
-                    if(! sd)
+                    auto it = cl._sds.find(cskt);
+
+                    if(it == cl._sds.end())
                     {
-                        auto usd = std::make_unique<socket_data>(cl->_strand, cskt, ec);
+                        socket_data sd{cl._ioc};
 
-                        if(ec)
-                            break;
+                        if(aerror_code ec = sd.assign(cskt))
+                        {
+                            cr.try_remove_and_schedule_resume(ec);
+                            return CURLM_OK;
+                        }
 
-                        sd = usd.get();
-
-                        //BOOST_VERIFY(cl->_sds.emplace(std::move(usd)).second);
-                        cl->_sds.emplace(std::move(usd));
-
-                        cl->_multi.assign(cskt, sd).throw_on_error();
+                        sd.id = ++ cl._idSeq;
+                        it = cl._sds.try_emplace(cskt, std::move(sd)).first;
                     }
 
-                    sd->acts |= acts;
-                    cr->_sd = sd;
+                    socket_data& sd = it->second;
 
-                    if(acts & CURL_POLL_IN)
-                        sd->skt.async_wait(asio::socket_base::wait_read, [cl, cr, sd](auto&& ec){
-                            cl->event_cb(cr, sd, ec, CURL_POLL_IN);
+                    if((acts & CURL_POLL_IN) && !(sd.acts & CURL_POLL_IN))
+                        sd.skt.async_wait(asio::socket_base::wait_read, [&, id = sd.id, cskt](auto&& ec){
+                            cl.event_cb(id, ec, cskt, CURL_POLL_IN);
                         });
 
-                    if(acts & CURL_POLL_OUT)
-                        sd->skt.async_wait(asio::socket_base::wait_write, [cl, cr, sd](auto&& ec){
-                            cl->event_cb(cr, sd, ec, CURL_POLL_OUT);
+                    if((acts & CURL_POLL_OUT) && !(sd.acts & CURL_POLL_OUT))
+                        sd.skt.async_wait(asio::socket_base::wait_write, [&, id = sd.id, cskt](auto&& ec){
+                            cl.event_cb(id, ec, cskt, CURL_POLL_OUT);
                         });
+
+                    sd.acts = acts;
                 }
                 break;
             case CURL_POLL_REMOVE:
-                BOOST_ASSERT(sd);
-                BOOST_ASSERT(cl->_sds.contains(sd));
-                //BOOST_ASSERT(! sd->acts);
-                BOOST_ASSERT(cr->_sd == sd);
-
-                cr->_sd = nullptr;
-
-                if(! sd)
-                    throw std::runtime_error("multi_sock_cb: null sd for remove");
-
-                if(auto it = cl->_sds.find(sd); it != cl->_sds.end())
-                    cl->_sds.erase(it);
-                else
-                    throw std::runtime_error("multi_sock_cb: untracked socket_data");
-
-                cl->_multi.assign(cskt, nullptr).throw_on_error();
-
+                BOOST_ASSERT(cl._sds.contains(cskt));
+                cl._sds.erase(cskt);
                 break;
             default:
                 BOOST_ASSERT(false);
                 throw std::runtime_error("multi_sock_cb: unknown action");
         }
 
-        if(ec)
-            cr->try_schedule_remove_and_resume(ec);
-
         return CURLM_OK;
     }
 
-    static int multi_timer_cb(CURLM*, long ms, void* ud)
+    // should already inside critical section when get called
+    static int multi_timer_cb(CURLM*, long ms, void* cbp)
     {
-        curl_client* cl = reinterpret_cast<curl_client*>(ud);
+        BOOST_ASSERT(cbp);
+        curl_client& cl = *reinterpret_cast<curl_client*>(cbp);
 
-        cl->_timer.cancel();
+        cl._timer.cancel();
 
         if(ms > 0)
         {
-            cl->_timer.expires_after(std::chrono::milliseconds(ms));
-            cl->_timer.async_wait([cl](auto&& ec){
+            cl._timer.expires_after(std::chrono::milliseconds(ms));
+            cl._timer.async_wait([&](auto&& ec){
                 if(! ec)
-                    cl->process_socket_action(CURL_SOCKET_TIMEOUT, 0);
+                    cl.process_socket_action(CURL_SOCKET_TIMEOUT, 0);
             });
         }
         else if(ms == 0)
         {
-            cl->strand_post([cl](){
-                cl->process_socket_action(CURL_SOCKET_TIMEOUT, 0);
-            });
+            cl.process_socket_action_nolock(CURL_SOCKET_TIMEOUT, 0);
         }
 
         return CURLM_OK;
@@ -1105,19 +1154,16 @@ private:
 
 public:
     explicit curl_client(size_t cap, asio::io_context& ctx = default_ioc())
-        : _ioc{ctx}, _pool{cap, [this](){ return curl_request(*this); }}
+        : _ioc{ctx}, _pool{cap, [this](auto&& emplace){ emplace(*this).reset_all(); }}
     {
-        _pool.on_acquire([](curl_request& cr){ cr.reset_all(); });
+        _pool.on_recycle([](curl_request& cr){
+            cr.on_recycle();
+        });
 
         _multi.setopts(
             curlmopt::socket_cb(multi_sock_cb, this),
             curlmopt::timer_cb(multi_timer_cb, this)
         );
-    }
-
-    ~curl_client()
-    {
-        BOOST_ASSERT(_sds.empty());
     }
 
     curl_client(curl_client const&) = delete;
@@ -1130,21 +1176,71 @@ public:
     // do not call clear_unused() when running
     auto& pool() noexcept { return _pool; }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     auto acquire_request(auto... p)
     {
         return _pool.acquire(p...);
     }
 
-    void default_opts_func(auto&& f) { _defaultOptsFunc = JKL_FORWARD(f); }
-    void clear_default_opts_func() { _defaultOptsFunc = nullptr; }
+    /// settings
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    auto& opts(auto&&... t)
+    {
+        std::lock_guard lg{_mtx};
+        _multi.setopts(JKL_FORWARD(t)...);
+        return *this;
+    }
 
-    auto& default_proxy() const noexcept { return _defaultProxy; }
-    void default_proxy(_str_ auto const& u) { _defaultProxy = u; }
-    void clear_default_proxy() { _defaultProxy.clear(); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    void default_opts_func(auto&& f)
+    {
+        std::lock_guard lg{_mtx};
+        _defaultOptsFunc = JKL_FORWARD(f);
+    }
 
-    auto& no_proxy_list() const noexcept { return _noProxyList; }
-    void add_no_proxy(_str_ auto&&... u) { (... , _noProxyList.emplace_back(JKL_FORWARD(u))); }
-    void clear_no_proxy_list() { _noProxyList.clear(); }
+    void clear_default_opts_func()
+    {
+        std::lock_guard lg{_mtx};
+        _defaultOptsFunc = nullptr;
+    }
+
+    auto& default_proxy()
+    {
+        std::lock_guard lg{_mtx};
+        return _defaultProxy;
+    }
+
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    void default_proxy(_str_ auto const& u)
+    {
+        std::lock_guard lg{_mtx};
+        _defaultProxy = u;
+    }
+
+    void clear_default_proxy()
+    {
+        std::lock_guard lg{_mtx};
+        _defaultProxy.clear();
+    }
+
+    auto& no_proxy_list()
+    {
+        std::lock_guard lg{_mtx};
+        return _noProxyList;
+    }
+
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    void add_no_proxy(_str_ auto&&... u)
+    {
+        std::lock_guard lg{_mtx};
+        (... , _noProxyList.emplace_back(JKL_FORWARD(u)));
+    }
+
+    void clear_no_proxy_list()
+    {
+        std::lock_guard lg{_mtx};
+        _noProxyList.clear();
+    }
 
     ///
     template<_resizable_byte_buf_ B>
@@ -1180,6 +1276,7 @@ public:
     }
 
     ///
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     aresult_task<> read_response(auto method, auto target, curl_fields fields, auto& msg, auto... p)
     {
         JKL_CO_TRY(auto&& req, co_await acquire_request(p...));

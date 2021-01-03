@@ -19,7 +19,7 @@ class uri_reader : public std::tuple<lref_or_val_t<T>...>
     char const* _it ;
 
     template<class Tag> static consteval bool has() { return has_tag<base, Tag>; };
-    template<class... Tags> static consteval bool has_oneof() { return has_oneof_tag<base, Tags>; };
+    template<class... Tags> static consteval bool has_oneof() { return has_oneof_tag<base, Tags...>; };
 
     template<class Tag> auto&& get()       noexcept requires(has<Tag>()) { return get_tagged<Tag>(static_cast<base      &>(*this)); }
     template<class Tag> auto&& get() const noexcept requires(has<Tag>()) { return get_tagged<Tag>(static_cast<base const&>(*this)); }
@@ -33,8 +33,9 @@ class uri_reader : public std::tuple<lref_or_val_t<T>...>
 
     void clear()
     {
-    #warning "uri_read::clear() is disabled, since it crashes clang
-    #if 0
+    #ifdef BOOST_CLANG
+        #warning "uri_read::clear() is disabled, since it crashes clang-concepts"
+    #else
         clear<uri_scheme_tag          >();
         clear<uri_user_tag            >();
         clear<uri_password_tag        >();
@@ -81,6 +82,7 @@ class uri_reader : public std::tuple<lref_or_val_t<T>...>
         return p;
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     bool peek_seq(auto... c) const noexcept
     {
         if(_end - _it >= static_cast<ptrdiff_t>(sizeof...(c)))
@@ -114,7 +116,7 @@ class uri_reader : public std::tuple<lref_or_val_t<T>...>
 
     std::optional<string_view> match_path() noexcept
     {
-        if(peek_seq('/'))
+        if(_it < _end) // don't use peek_seq('/')
         {
             auto e = find_first_of('?', '#');
             return string_view{std::exchange(_it, e), e};
@@ -314,12 +316,20 @@ public:
             if constexpr(has_oneof<uri_dir_path_tag, uri_file_tag, uri_file_name_tag, uri_file_ext_tag, uri_file_dot_ext_tag>())
             {
                 auto q = matched->rfind('/');
-                BOOST_ASSERT(q != npos);
-                ++q;
 
-                if constexpr(has<uri_dir_path_tag>())
+                if(q != npos)
                 {
-                    JKL_TRYV(do_read<uri_dir_path_tag, SrcCodec>(matched->substr(0, q)));
+                    ++q;
+
+                    if constexpr(has<uri_dir_path_tag>())
+                    {
+
+                        JKL_TRYV(do_read<uri_dir_path_tag, SrcCodec>(matched->substr(0, q)));
+                    }
+                }
+                else
+                {
+                    q = 0;
                 }
 
                 if(q < matched->size())
@@ -361,7 +371,7 @@ public:
             return no_err;
 
         // query and fragment
-        auto qBeg = _it;
+        [[maybe_unused]] auto qBeg = _it;
 
         if(auto matched = match_qm_query())
         {
@@ -414,13 +424,13 @@ uri_reader(T&&...) -> uri_reader<T&&...>;
 template<uri_codec_e SrcCodec, bool Clear = true, bool Trim = true>
 aresult<> read_uri(_char_str_ auto const& u, _uri_comp_ auto&&... comps)
 {
-    return uri_reader{JKL_FORWARD(comps)...}.read<SrcCodec, Clear, Trim>(u);
+    return uri_reader{JKL_FORWARD(comps)...}.template read<SrcCodec, Clear, Trim>(u);
 }
 
 template<bool Clear = true, bool Trim = true>
 aresult<> read_uri(_uri_uri_ auto const& u, _uri_comp_ auto&&... comps)
 {
-    return uri_reader{JKL_FORWARD(comps)...}.read<Clear, Trim>(u);
+    return uri_reader{JKL_FORWARD(comps)...}.template read<Clear, Trim>(u);
 }
 
 

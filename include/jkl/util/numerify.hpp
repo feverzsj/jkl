@@ -11,6 +11,7 @@
 namespace jkl{
 
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 bool numerify(_char_str_ auto const& s, std::integral auto& v, int base = 10) noexcept
 {
     char const* beg = str_data(s);

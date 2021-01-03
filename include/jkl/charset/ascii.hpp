@@ -193,6 +193,7 @@ constexpr char ascii_toupper(char c) noexcept
 }
 
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr char* ascii_tolower_append(char* d, _char_str_ auto const& s) noexcept
 {
     for(char c : as_str_class(s))
@@ -200,6 +201,7 @@ constexpr char* ascii_tolower_append(char* d, _char_str_ auto const& s) noexcept
     return d;
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr char* ascii_toupper_append(char* d, _char_str_ auto const& s) noexcept
 {
     for(char c : as_str_class(s))
@@ -208,12 +210,14 @@ constexpr char* ascii_toupper_append(char* d, _char_str_ auto const& s) noexcept
 }
 
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr void ascii_tolower_append(_resizable_char_buf_ auto& d, _char_str_ auto const& s) noexcept
 {
     decltype(auto) sc = as_str_class(s);
     ascii_tolower_append(buy_buf(d, str_size(sc)), sc);
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr void ascii_toupper_append(_resizable_char_buf_ auto& d, _char_str_ auto const& s) noexcept
 {
     decltype(auto) sc = as_str_class(s);
@@ -221,6 +225,7 @@ constexpr void ascii_toupper_append(_resizable_char_buf_ auto& d, _char_str_ aut
 }
 
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr void ascii_tolower_assign(_resizable_char_buf_ auto& d, _char_str_ auto const& s) noexcept
 {
     decltype(auto) sc = as_str_class(s);
@@ -228,6 +233,7 @@ constexpr void ascii_tolower_assign(_resizable_char_buf_ auto& d, _char_str_ aut
     ascii_tolower_append(buf_data(d), sc);
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr void ascii_toupper_assign(_resizable_char_buf_ auto& d, _char_str_ auto const& s) noexcept
 {
     decltype(auto) sc = as_str_class(s);
@@ -252,7 +258,9 @@ constexpr char* ascii_toupper_inplace(char* beg, char* end) noexcept
     return end;
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr void ascii_tolower_inplace(_char_str_ auto& s) noexcept { ascii_tolower_inplace(str_begin(s), str_end(s)); }
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr void ascii_toupper_inplace(_char_str_ auto& s) noexcept { ascii_toupper_inplace(str_begin(s), str_end(s)); }
 
 
@@ -283,6 +291,7 @@ constexpr string_view ascii_trimed_view(char const* beg, char const* end) noexce
     return {beg, end};
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr string_view ascii_trimed_view(_char_str_ auto const& s) noexcept
 {
     return ascii_trimed_view(str_begin(s), str_end(s));
@@ -290,6 +299,7 @@ constexpr string_view ascii_trimed_view(_char_str_ auto const& s) noexcept
 
 
 // case insensitive compare
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr bool ascii_iequal(_char_str_ auto const& l, _char_str_ auto const& r) noexcept
 {
     auto&& cl = as_str_class(l);

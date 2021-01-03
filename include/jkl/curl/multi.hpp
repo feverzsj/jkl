@@ -7,9 +7,7 @@
 #include <jkl/curl/error.hpp>
 #include <jkl/curl/easy.hpp>
 #include <curl/curl.h>
-#include <optional>
 #include <memory>
-#include <deque>
 
 
 namespace jkl{
@@ -126,21 +124,29 @@ public:
 
     struct done_msg_t
     {
-        curl_easy easy;
+        CURL*     easy = nullptr;
         CURLcode  err;
 
-        explicit done_msg_t(CURLMsg& m) : easy(m.easy_handle), err(m.data.result) {}
+        done_msg_t() = default;
+
+        explicit done_msg_t(CURLMsg& m)
+            : easy{m.easy_handle}, err{m.data.result}
+        {
+            BOOST_ASSERT(m.msg == CURLMSG_DONE);
+        }
+
+        explicit operator bool() const noexcept { return easy != nullptr; }
     };
 
-    std::optional<done_msg_t> next_done() noexcept
+    done_msg_t next_done() noexcept
     {
         while(CURLMsg* m = next_msg())
         {
             if(m->msg == CURLMSG_DONE)
-                return std::optional<done_msg_t>(std::in_place, *m);
+                return done_msg_t{*m};
         }
 
-        return std::nullopt;
+        return {};
     }
 
 };

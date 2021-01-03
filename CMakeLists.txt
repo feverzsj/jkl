@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.18)
 
 
 #set_property(GLOBAL PROPERTY USE_FOLDERS ON)
@@ -36,8 +36,8 @@ endif()
 
 
 find_package(Boost 1.71.0 REQUIRED)# COMPONENTS asio beast uuid)
-find_package(RapidJSON REQUIRED)
 find_package(CURL REQUIRED)
+find_package(ICU REQUIRED COMPONENTS uc)
 
 target_link_libraries(${PROJECT_NAME}
     INTERFACE
@@ -46,9 +46,27 @@ target_link_libraries(${PROJECT_NAME}
         $<$<PLATFORM_ID:Linux>:-lpthread>
         $<$<CXX_COMPILER_ID:Clang,AppleClang>:-stdlib=libc++;-lc++abi>
         CURL::libcurl
+        ICU::uc
 )
 #target_include_directories(${PROJECT_NAME} INTERFACE ${Boost_INCLUDE_DIRS})
+
+# RapidJSON
+find_package(RapidJSON REQUIRED)
 target_include_directories(${PROJECT_NAME} INTERFACE ${RAPIDJSON_INCLUDE_DIRS})
+
+# robin-hood-hashing
+find_path(Robin_hood_hashing_INCLUDE_DIRS "robin_hood.h" REQUIRED)
+target_include_directories(${PROJECT_NAME} INTERFACE ${Robin_hood_hashing_INCLUDE_DIRS})
+
+# cppcodec
+find_path(Cppcodec_INCLUDE_DIRS "cppcodec/base32_crockford.hpp" REQUIRED)
+target_include_directories(${PROJECT_NAME} INTERFACE ${Cppcodec_INCLUDE_DIRS})
+
+# gumbo
+find_path(Gumbo_INCLUDE_DIR "robin_hood.h" REQUIRED)
+find_library(Gumbo_LIBRARIES gumbo REQUIRED)
+target_include_directories(${PROJECT_NAME} INTERFACE ${Gumbo_INCLUDE_DIR})
+target_link_libraries(${PROJECT_NAME} INTERFACE ${Gumbo_LIBRARIES})
 
 
 target_compile_definitions(${PROJECT_NAME}
@@ -127,12 +145,12 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 
     # install bundled
 
-    if(${PROJECT_NAME}_BUNDLE_certify)
-        install(
-            DIRECTORY   ${PROJECT_SOURCE_DIR}/bundled/certify
-            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME}/bundled
-        )
-    endif()
+    # if(${PROJECT_NAME}_BUNDLE_certify)
+    #     install(
+    #         DIRECTORY   ${PROJECT_SOURCE_DIR}/bundled/certify
+    #         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME}/bundled
+    #     )
+    # endif()
 
 
     string(CONCAT _STRICT_COMPILE_OPTIONS
@@ -171,6 +189,14 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
         add_subdirectory(test)
     endif()
 
+    # benchmark
+
+    option(${PROJECT_NAME}_ENABLE_BENCHMARK "enable build benchmark" ON)
+
+    if(${PROJECT_NAME}_ENABLE_BENCHMARK)
+        include(CTest)
+        add_subdirectory(benchmark)
+    endif()
 
     # example
 

@@ -37,7 +37,7 @@ detect_bom_result detect_bom(string_view s)
         if(s.starts_with("\0x38\0x2D"))
             return {"UTF-7", 5};
 
-        if(s.starts_with('\0x38') || s.starts_with('\0x39') || s.starts_with('\0x2B') || s.starts_with('\0x2F'))
+        if(s.starts_with("\0x38") || s.starts_with("\0x39") || s.starts_with("\0x2B") || s.starts_with("\0x2F"))
             return {"UTF-7", 4};
     }
 

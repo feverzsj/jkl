@@ -573,3 +573,34 @@ template<typename _Callback>
 } // namespace std
 
 #endif
+
+
+#include <jkl/config.hpp>
+#include <memory>
+#include <functional>
+
+
+namespace jkl{
+
+
+// std::stop_callback is neither movable nor copyable, which cannot be used as a member of awaiter.
+// this class models std::optional<std::stop_callback<F>>, and is also moveable.
+template<class F = std::function<void()>>
+class optional_stop_callback
+{
+    using stop_cb_type = std::stop_callback<F>;
+    std::unique_ptr<std::stop_callback<F>> _p;
+
+public:
+    constexpr explicit operator bool() const { return has_value(); }
+    constexpr bool has_value() const { return _p.operator bool(); }
+
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    void emplace(std::stop_token const& st, auto&& f)
+    {
+        _p = std::make_unique<stop_cb_type>(st, JKL_FORWARD(f));
+    }
+};
+
+
+} // namespace jkl

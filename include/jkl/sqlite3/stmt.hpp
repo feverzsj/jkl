@@ -186,10 +186,10 @@ public:
             if(! next())
                 throw sqlite3_err("no row to retrieve");
 
-            if constexpr(_tuple_like_<T>)
+            if constexpr(_tuple_<T>)
             {
                 T t;
-                std::apply([this](auto&... c){ cols<Ith>(c...); }, t);
+                unpack(t, [this](auto&... c){ cols<Ith>(c...); });
                 return t;
             }
             else

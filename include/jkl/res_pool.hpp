@@ -2,8 +2,14 @@
 
 #include <jkl/config.hpp>
 #include <jkl/ioc.hpp>
+#include <jkl/error.hpp>
+#include <jkl/result.hpp>
+#include <jkl/params.hpp>
+#include <jkl/std_coro.hpp>
+#include <jkl/std_stop_token.hpp>
 #include <jkl/variant_awaiter.hpp>
 #include <jkl/util/unordered_map_set.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/numeric/conversion/cast.hpp>
 #include <list>
 #include <queue>
@@ -14,8 +20,8 @@
 namespace jkl{
 
 
-template<bool Cond>
-using conditional_lock_guard = std::conditional_t<Cond, std::lock_guard, null_op_t>;
+template<bool Cond, class Mutex = std::mutex>
+using conditional_lock_guard = std::conditional_t<Cond, std::lock_guard<Mutex>, null_op_t>;
 
 
 enum res_pool_map_lock_policy
@@ -33,8 +39,8 @@ class res_pool
 
     // list/forward_list end iterator won't be invalidated by modfiers except swap().
     // we rely on this to test if it is valid without locking in res_holder.
-    using list_t = std::list<T>;
-    using res_iter = std::conditional_t<has_res, typename list_t::iterator, size_t>;
+    JKL_LAZY_COND_TYPEDEF(list_t  , has_res, std::list<T>             , null_op_t);
+    JKL_LAZY_COND_TYPEDEF(res_iter, has_res, typename list_t::iterator, size_t   );
 
 public:
     friend class res_holder;
@@ -42,7 +48,7 @@ public:
     class res_holder
     {
         res_pool* _p = nullptr;
-        res_iter  _it;
+        res_iter  _it = {}; // 0 when res_iter is size_t
 
     public:
         res_holder() = default;
@@ -57,7 +63,7 @@ public:
 
         res_holder& operator=(res_holder&& t) noexcept
         {
-            BOOST_ASSERT(_p == t._p);
+            std::swap(_p, t._p);
             std::swap(_it, t._it);
             return *this;
         }
@@ -66,9 +72,9 @@ public:
 
         explicit operator bool() const noexcept { return valid(); }
 
-        T& value     () noexcept requires(has_res) { BOOST_ASSERT(valid()); return *_it; }
-        T& operator* () noexcept requires(has_res) { return value(); }
-        T* operator->() noexcept requires(has_res) { return std::addressof(value()); }
+        auto& value     () noexcept requires(has_res) { BOOST_ASSERT(valid()); return *_it; }
+        auto& operator* () noexcept requires(has_res) { return value(); }
+        auto* operator->() noexcept requires(has_res) { return std::addressof(value()); }
 
         res_pool& pool() noexcept { BOOST_ASSERT(_p); return *_p; }
 
@@ -78,6 +84,7 @@ public:
             {
                 _p->recycle(_it);
                 _it = _p->invalid_iter();
+                _p  = nullptr;
             }
         }
     };
@@ -112,18 +119,17 @@ private:
                 _coro.resume();
             });
         }
-
     };
 
     template<bool EnableStop, class Dur>
     struct awaiter : awaiter_base
     {
-        static constexpr bool has_expiryDur = ! std::is_same_v<Dur, null_op_t>;
+        static constexpr bool has_expiry_dur = ! std::is_same_v<Dur, null_op_t>;
 
         std::unique_lock<std::mutex> _lk;
 
-        [[no_unique_address]] not_null_if_t<has_expiryDur, asio::steady_timer                                      > _timer;
-        [[no_unique_address]] not_null_if_t<EnableStop   , std::optional<std::stop_callback<std::function<void()>>>> _stopCb;
+        JKL_DEF_MEMBER_IF(has_expiry_dur, asio::steady_timer      , _timer );
+        JKL_DEF_MEMBER_IF(EnableStop    , optional_stop_callback<>, _stopCb);
 
         awaiter(std::unique_lock<std::mutex>&& lk, res_pool& p, Dur const& expiryDur)
             : awaiter_base{p}, _lk{std::move(lk)}, _timer{p.io_ctx(), expiryDur}
@@ -148,12 +154,12 @@ private:
 
                 BOOST_ASSERT(! this->_rh.valid());
 
-                this->_rh = this->_pool.try_acquire<false>();
+                this->_rh = this->_pool.template try_acquire<false>();
 
                 if(this->_rh.valid())
                     return false;
 
-                // if constexpr(has_expiryDur)
+                // if constexpr(has_expiry_dur)
                 // {
                 //     if(_timer.expiry() == asio::steady_timer::clock_type::now())
                 //     {
@@ -164,14 +170,14 @@ private:
 
                 this->_coro = c;
 
-                this->_pool.add_awaiter<false>(this);
+                this->_pool.template add_awaiter<false>(this);
             }
 
-            if constexpr(has_expiryDur)
+            if constexpr(has_expiry_dur)
             {
                 _timer.async_wait(
                     [this, &p = this->_pool, wid = this->_id]([[maybe_unused]] auto&& ec)
-                    {//    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ must store them, since awaiter may be removed, when the timer handle get called.
+                    {//    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ must store them, since awaiter may be removed, when the timer handle get called, which means pool must outlive timeout callback
                         if(!ec && p.remove_awaiter(wid))
                         {
                             this->_ec = gerrc::timeout;
@@ -189,7 +195,7 @@ private:
                     {
                         if(this->_pool.remove_awaiter(this->_id))
                         {
-                            if constexpr(has_expiryDur)
+                            if constexpr(has_expiry_dur)
                                 _timer.cancel();
 
                             this->_ec = asio::error::operation_aborted;
@@ -214,11 +220,22 @@ private:
     std::conditional_t<lock_outside, std::mutex&, std::mutex> _mut;
 
     size_t _cap = 0;
-    [[no_unique_address]] not_null_if_t<! has_res, size_t                 > _size = 0; // size of in use
-    [[no_unique_address]] not_null_if_t<  has_res, list_t                 > _inuse;
-    [[no_unique_address]] not_null_if_t<  has_res, list_t                 > _unused;
-    [[no_unique_address]] not_null_if_t<  has_res, std::function<T()     >> _creator;
-    [[no_unique_address]] not_null_if_t<  has_res, std::function<void(T&)>> _onAcq = [](T&){};
+    JKL_DEF_MEMBER_IF(! has_res, size_t, _size) = 0; // size of in use
+    JKL_DEF_MEMBER_IF(  has_res, list_t, _inuse  );
+    JKL_DEF_MEMBER_IF(  has_res, list_t, _unused );
+
+    struct emplace_res_to_unused
+    {
+        res_pool& p;
+        _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+        auto& operator()(auto&&... args) requires(has_res)
+        {
+            return p._unused.emplace_front(JKL_FORWARD(args)...);
+        }
+    };
+
+    JKL_LAZY_DEF_MEMBER_IF(has_res, std::function<void(emplace_res_to_unused)>, _creator);
+    JKL_LAZY_DEF_MEMBER_IF(has_res, std::function<void(T&)>, _onRecycle)= [](auto&){};
 
     // awaiters waiting for res
     std::deque<awaiter_base*>   _awaiterQueue;
@@ -231,7 +248,7 @@ private:
         if constexpr(has_res)
             return _inuse.end();
         else
-            return static_cast<size_t>(-1);
+            return static_cast<size_t>(0);
     }
 
     template<bool Lock>
@@ -268,6 +285,9 @@ private:
     {
         BOOST_ASSERT(it != invalid_iter());
 
+        if constexpr(has_res)
+            _onRecycle(*it);
+
         awaiter_base* w = nullptr;
         {
             std::lock_guard lg{_mut};
@@ -278,9 +298,14 @@ private:
             if(_awaiterQueue.empty())
             {
                 if constexpr(has_res)
+                {
                     _unused.splice(_unused.begin(), _inuse, it);
+                }
                 else
-                    ++_size;
+                {
+                    BOOST_ASSERT(_size > 0);
+                    --_size;
+                }
                 return;
             }
 
@@ -289,8 +314,8 @@ private:
             _awaiterQueue.pop_front();
         }
 
-        if constexpr(has_res)
-            _onAcq(*it);
+        //if constexpr(has_res)
+        //    _onAcq(*it);
         w->complete(it);
     }
 
@@ -303,12 +328,14 @@ private:
     }
 
 public:
-    explicit res_pool(std::mutex& m, size_t cap, auto&& create, auto&& onAcq, asio::io_context& ioc = default_ioc()) requires(lock_outside)
-        : _ioc{ioc}, _mut{m}, _cap{cap}, _creator{JKL_FORWARD(create)}, _onAcq{JKL_FORWARD(onAcq)}
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    explicit res_pool(std::mutex& m, size_t cap, auto&& create, auto&& onRecycle, asio::io_context& ioc = default_ioc()) requires(lock_outside)
+        : _ioc{ioc}, _mut{m}, _cap{cap}, _creator{JKL_FORWARD(create)}, _onRecycle{JKL_FORWARD(onRecycle)}
     {
         BOOST_ASSERT(_cap > 0);
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     explicit res_pool(std::mutex& m, size_t cap, auto&& create, asio::io_context& ioc = default_ioc()) requires(lock_outside)
         : _ioc{ioc}, _mut{m}, _cap{cap}, _creator{JKL_FORWARD(create)}
     {
@@ -316,7 +343,7 @@ public:
     }
 
     explicit res_pool(std::mutex& m, size_t cap, asio::io_context& ioc = default_ioc()) requires(lock_outside && has_res && std::is_default_constructible_v<T>)
-        : res_pool{m, cap, [](){ return T{}; }, ioc}
+        : res_pool{m, cap, [](auto&& emplace){ emplace(T{}); }, ioc}
     {}
 
     explicit res_pool(std::mutex& m, size_t cap, asio::io_context& ioc = default_ioc()) requires(lock_outside && ! has_res)
@@ -326,20 +353,22 @@ public:
     }
 
     ///
-    explicit res_pool(size_t cap, auto&& create, auto&& onAcq, asio::io_context& ioc = default_ioc()) requires(! lock_outside)
-        : _ioc{ioc}, _cap{cap}, _creator{JKL_FORWARD(create)}, _onAcq{JKL_FORWARD(onAcq)}
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    explicit res_pool(size_t cap, auto&& create, auto&& onRecycle, asio::io_context& ioc = default_ioc()) requires(! lock_outside)
+        : _ioc{ioc}, _cap{cap}, _creator{JKL_FORWARD(create)}, _onRecycle{JKL_FORWARD(onRecycle)}
     {
         BOOST_ASSERT(_cap > 0);
     }
 
-    explicit res_pool(size_t cap, auto&& create, asio::io_context& ioc = default_ioc()) requires(! lock_outside)
+    template<class F> // don't use auto, clang-concepts bug
+    explicit res_pool(size_t cap, F&& create, asio::io_context& ioc = default_ioc()) requires(! lock_outside)
         : _ioc{ioc}, _cap{cap}, _creator{JKL_FORWARD(create)}
     {
         BOOST_ASSERT(_cap > 0);
     }
 
     explicit res_pool(size_t cap, asio::io_context& ioc = default_ioc()) requires(! lock_outside && has_res && std::is_default_constructible_v<T>)
-        : res_pool{cap, [](){ return T{}; }, ioc}
+        : res_pool{cap, [](auto&& add){ add(T{}); }, ioc}
     {}
 
     explicit res_pool(size_t cap, asio::io_context& ioc = default_ioc()) requires(! lock_outside && ! has_res)
@@ -422,17 +451,19 @@ public:
     }
 
     // how to create the resource
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     void set_creator(auto&& f) requires(has_res)
     {
         std::lock_guard lg{_mut};
         _creator = JKL_FORWARD(f);
     }
 
-    // do something to the resource when it is acquired
-    void on_acquire(auto&& f) requires(has_res)
+    // do something to the resource when it is about to be recycled
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    void on_recycle(auto&& f) requires(has_res)
     {
         std::lock_guard lg{_mut};
-        _onAcq = JKL_FORWARD(f);
+        _onRecycle = JKL_FORWARD(f);
     }
 
     void create_all() requires(has_res)
@@ -442,7 +473,7 @@ public:
         BOOST_ASSERT(_cap >= occupied_cap_nolock());
 
         for(size_t n = _cap - occupied_cap_nolock(); n-- > 0;)
-            _unused.emplace_front(_creator());
+            _creator(emplace_res_to_unused{*this});
     }
 
     template<bool Lock = true>
@@ -455,19 +486,19 @@ public:
             if(_unused.empty())
             {
                 if(_inuse.size() < _cap)
-                    _unused.emplace_front(_creator());
+                    _creator(emplace_res_to_unused{*this});
                 else
                     return {};
             }
 
             _inuse.splice(_inuse.begin(), _unused, _unused.begin());
-            _onAcq(*_inuse.begin());
+            //_onAcq(*_inuse.begin());
             return {*this, _inuse.begin()};
         }
         else
         {
             if(_size < _cap)
-                return {*this, _size++};
+                return {*this, ++_size};
             return {};
         }
     }
@@ -508,8 +539,8 @@ private:
     unordered_node_map<Key, pool_type> _pools;
     asio::io_context* _ioc = nullptr;
     size_t _cap = 0;
-    [[no_unique_address]] not_null_if_t<has_res, std::function<T()     >> _creator;
-    [[no_unique_address]] not_null_if_t<has_res, std::function<void(T&)>> _onAcq = [](T&){};
+    JKL_LAZY_DEF_MEMBER_IF(has_res, std::function<T()>     , _creator  );
+    JKL_LAZY_DEF_MEMBER_IF(has_res, std::function<void(T&)>, _onRecycle) = [](auto&){};
 
 public:
     explicit res_pool_map(size_t cap, asio::io_context& ioc = default_ioc()) requires(! has_res)
@@ -519,17 +550,19 @@ public:
     }
 
     explicit res_pool_map(size_t cap, asio::io_context& ioc = default_ioc()) requires(has_res && std::is_default_constructible_v<T>)
-        : res_pool_map{cap, [](){ return T{}; }, ioc}
+        : res_pool_map{cap, [](auto&& add){ add(T{}); }, ioc}
     {}
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     explicit res_pool_map(size_t cap, auto&& create, asio::io_context& ioc = default_ioc()) requires(has_res)
         : _ioc{&ioc}, _cap{cap}, _creator{JKL_FORWARD(create)}
     {
         BOOST_ASSERT(_cap > 0);
     }
 
-    explicit res_pool_map(size_t cap, auto&& create, auto&& onAcq, asio::io_context& ioc = default_ioc()) requires(has_res)
-        : _ioc{&ioc}, _cap{cap}, _creator{JKL_FORWARD(create)}, _onAcq{JKL_FORWARD(onAcq)}
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    explicit res_pool_map(size_t cap, auto&& create, auto&& onRecycle, asio::io_context& ioc = default_ioc()) requires(has_res)
+        : _ioc{&ioc}, _cap{cap}, _creator{JKL_FORWARD(create)}, _onRecycle{JKL_FORWARD(onRecycle)}
     {
         BOOST_ASSERT(_cap > 0);
     }
@@ -546,16 +579,18 @@ public:
         _ioc = &ioc;
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     void set_default_creator(auto&& f) requires(has_res)
     {
         std::lock_guard lg{_mut};
         _creator = JKL_FORWARD(f);
     }
 
-    void set_default_on_acquire(auto&& f) requires(has_res)
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    void set_default_on_recycle(auto&& f) requires(has_res)
     {
         std::lock_guard lg{_mut};
-        _onAcq = JKL_FORWARD(f);
+        _onRecycle = JKL_FORWARD(f);
     }
 
     template<bool Lock = true>
@@ -569,43 +604,47 @@ public:
     }
 
     template<bool Lock = true>
-    std::pair<pool_type*, bool> add_pool(auto&& k, size_t cap, auto&& create, auto&& onAcq, asio::io_context& ioc)
+    std::pair<pool_type*, bool> add_pool(auto&& k, size_t cap, auto&& create, auto&& onRecycle, asio::io_context& ioc)
     {
         conditional_lock_guard<Lock> lg{_mut};
 
         if constexpr(single_lock)
         {
-            auto[it, ok] = _pools.try_emplace(JKL_FORWARD(k), _mut, cap, JKL_FORWARD(create), JKL_FORWARD(onAcq), ioc);
+            auto[it, ok] = _pools.try_emplace(JKL_FORWARD(k), _mut, cap, JKL_FORWARD(create), JKL_FORWARD(onRecycle), ioc);
             return {& it->second, ok};
         }
         else
         {
-            auto[it, ok] = _pools.try_emplace(JKL_FORWARD(k), cap, JKL_FORWARD(create), JKL_FORWARD(onAcq), ioc);
+            auto[it, ok] = _pools.try_emplace(JKL_FORWARD(k), cap, JKL_FORWARD(create), JKL_FORWARD(onRecycle), ioc);
             return {& it->second, ok};
         }
     }
 
-    std::pair<pool_type*, bool> add_pool(auto&& k, size_t cap, auto&& create, auto&& onAcq)
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    std::pair<pool_type*, bool> add_pool(auto&& k, size_t cap, auto&& create, auto&& onRecycle)
     {
-        return add_pool(JKL_FORWARD(k), cap, create, onAcq, _ioc);
+        return add_pool(JKL_FORWARD(k), cap, create, onRecycle, *_ioc);
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     std::pair<pool_type*, bool> add_pool(auto&& k, size_t cap, auto&& create)
     {
-        return add_pool(JKL_FORWARD(k), cap, create, _onAcq, _ioc);
+        return add_pool(JKL_FORWARD(k), cap, create, _onRecycle, *_ioc);
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     std::pair<pool_type*, bool> add_pool(auto&& k, size_t cap)
     {
-        return add_pool(JKL_FORWARD(k), cap, _creator, _onAcq, _ioc);
+        return add_pool(JKL_FORWARD(k), cap, _creator, _onRecycle, *_ioc);
     }
 
     template<bool Lock = true>
     std::pair<pool_type*, bool> add_pool(auto&& k)
     {
-        return add_pool<Lock>(JKL_FORWARD(k), _cap, _creator, _onAcq, _ioc);
+        return add_pool<Lock>(JKL_FORWARD(k), _cap, _creator, _onRecycle, *_ioc);
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     res_holder try_acquire(auto&& k)
     {
         std::unique_lock lk{_mut};
@@ -636,44 +675,46 @@ public:
 
     }
 
+
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     auto acquire(auto&& k, auto... p)
     {
         struct not_found_awaiter
         {
             bool await_ready() const noexcept { return true; }
-            void await_suspend(auto) const noexcept {}
+            bool await_suspend(std::coroutine_handle<>) const noexcept { return false; }
             aresult<res_holder> await_resume() { return gerrc::not_found; }
         };
 
-        using awaiter = variant_awaiter<not_found_awaiter, decltype(std::declval<>(pool_type).acquire(p...))>;
-
         std::unique_lock lk{_mut};
 
-        pool_type* p = get_pool<false>(k);
+        pool_type* pool = get_pool<false>(k);
 
-        if(! p)
+        using awaiter = variant_awaiter<not_found_awaiter, decltype(pool->acquire(p...))>;
+
+        if(! pool)
         {
             if constexpr(AutoAddPool)
-                p = add_pool<false>(JKL_FORWARD(k)).first;
+                pool = add_pool<false>(JKL_FORWARD(k)).first;
             else
-                return awaiter{not_found_awaiter{}};
+                return awaiter{};
         }
 
         if constexpr(LockPolicy == res_pool_map_single_lock)
         {
-            return awaiter{p->acquire(std::move(lk), p...)};
+            return awaiter{pool->acquire(std::move(lk), p...)};
         }
         else if constexpr(LockPolicy == res_pool_map_lock_per_pool)
         {
             lk.unlock();
-            return awaiter{p->acquire(p...)};
+            return awaiter{pool->acquire(p...)};
         }
         else
         {
             JKL_DEPENDENT_FAIL(decltype(k), "unsupported LockPolicy");
         }
     }
-}
+};
 
 
 } // namespace jkl

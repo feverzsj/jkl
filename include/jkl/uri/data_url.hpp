@@ -60,12 +60,12 @@ namespace jkl{
 
 
 // ref: https://tools.ietf.org/html/rfc2397
-// 
+//
 // dataurl    := "data:" [ mediatype ] [ ";base64" ] "," data
 // mediatype  := [ type "/" subtype ] *( ";" parameter )
 // data       := *urlchar
 // parameter  := attribute "=" value
-// 
+//
 // If <mediatype> is omitted, it defaults to text/plain;charset=US-ASCII.
 // As a shorthand, "text/plain" can be omitted but the charset parameter supplied.
 
@@ -94,23 +94,29 @@ inline aresult<data_url_parse_result> parse_data_url(string_view u)
     auto data = u.substr(q + 1);
     u.remove_suffix(data.size() + 1);
 
-    if(r.is_base64 = u.ends_with(";base64"))
+    if((r.is_base64 = u.ends_with(";base64")))
         u.remove_suffix(7);
 
     if(u.empty())
     {
         r.mime = "text/plain";
-        r.charset = "US-ASCII"
+        r.charset = "us-ascii";
     }
     else
     {
         q = u.find(';');
-        ascii_tolower_assign(r.mime, u.substr(q));
+        ascii_tolower_assign(r.mime, u.substr(0, q));
 
         if(q != npos)
         {
             if(q = u.find(";charset=", q); q != npos)
-                ascii_tolower_assign(r.charset, u.substr(q + 9));
+            {
+                q += 9;
+                auto e = u.find(';', q);
+                if(e == npos)
+                    e = u.size();
+                ascii_tolower_assign(r.charset, u.substr(q, e - q));
+            }
         }
 
         if(r.mime.empty())
@@ -131,7 +137,7 @@ inline aresult<data_url_parse_result> parse_data_url(string_view u)
     {
         if(r.is_base64)
         {
-            JKL_TRY(base64_url::decode_assign(r.data, data));
+            JKL_TRY(base64_rfc4648::decode_assign(r.data, data));
         }
         else
         {

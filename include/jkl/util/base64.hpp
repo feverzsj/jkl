@@ -4,6 +4,7 @@
 #include <jkl/error.hpp>
 #include <jkl/result.hpp>
 #include <jkl/util/buf.hpp>
+#include <jkl/util/str.hpp>
 #include <cppcodec/base64_url.hpp>
 #include <cppcodec/base64_rfc4648.hpp>
 
@@ -57,31 +58,36 @@ namespace jkl{
 template<class Codec>
 class cppcodec_wrapper : public Codec
 {
+public:
     using Codec::encoded_size;
     using Codec::decoded_max_size;
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     static constexpr size_t encoded_size(_byte_str_ auto const& s) noexcept
-    {    cppcodec::base64_url::encode()
-
+    {
         return Codec::encoded_size(str_size(s));
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     static constexpr size_t decoded_max_size(_byte_str_ auto const& s) noexcept
     {
         return Codec::decoded_max_size(str_size(s));
     }
 
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     static constexpr auto* encode_append(_byte_ auto* d, _byte_ auto* s, size_t n) noexcept
     {
         return d + Codec::encode(d, Codec::encoded_size(n), s, n);
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     static constexpr auto* encode_append(_byte_ auto* d, _byte_str_ auto const& s) noexcept
     {
         return encode_append(d, str_data(s), str_size(s));
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     static constexpr void encode_append(_resizable_byte_buf_ auto& d, _byte_str_ auto const& s)
     {
         size_t  n = str_size(s);
@@ -89,6 +95,7 @@ class cppcodec_wrapper : public Codec
         Codec::encode(buy_buf(d, en), en, str_data(s), n);
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     static constexpr void encode_assign(_resizable_byte_buf_ auto& d, _byte_str_ auto const& s)
     {
         size_t  n = str_size(s);
@@ -126,6 +133,7 @@ class cppcodec_wrapper : public Codec
         return decode_append(d, str_data(s), str_size(s));
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     static constexpr aresult<> decode_append(_resizable_byte_buf_ auto& d, _byte_str_ auto const& s)
     {
         size_t  n = str_size(s);
@@ -143,6 +151,7 @@ class cppcodec_wrapper : public Codec
         return no_err;
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     static constexpr aresult<> decode_assign(_resizable_byte_buf_ auto& d, _byte_str_ auto const& s)
     {
         size_t  n = str_size(s);

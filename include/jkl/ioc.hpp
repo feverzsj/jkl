@@ -10,6 +10,7 @@
 #include <memory>
 #include <thread>
 #include <atomic>
+#include <optional>
 #include <exception>
 #include <type_traits>
 
@@ -29,7 +30,7 @@ void _run_ioc(asio::io_context& ioc, F&& onExcep)
         }
         catch(...)
         {
-            std::forward<F>(onExcep)();
+            JKL_FORWARD(onExcep)();
         }
         // rejoin io_context
     }
@@ -74,7 +75,7 @@ public:
     }
 
     template<class F>
-    void start(size_t threads, F&& onExcep)
+    void start(size_t threads, F onExcep)
     {
         BOOST_ASSERT(! _wg);
         BOOST_ASSERT(_threads.empty());
@@ -85,7 +86,7 @@ public:
         for(;threads-- >0;)
         {
             _threads.emplace_back(
-                [this, onExcep{std::forward<F>(onExcep)}]()
+                [this, onExcep]()
                 {
                     _run_ioc(_ioc, onExcep);
                 }
@@ -100,12 +101,17 @@ public:
 
     void join()
     {
-        _wg.reset();
-        for(auto& t : _threads)
-            t.join();
-        _threads.clear();
+        if(_wg)
+        {
+            BOOST_ASSERT(_threads.size());
 
-        BOOST_ASSERT(_ioc.stopped());
+            _wg.reset();
+            for(auto& t : _threads)
+                t.join();
+            _threads.clear();
+
+            BOOST_ASSERT(_ioc.stopped());
+        }
     }
     
     bool stopped() const noexcept
@@ -145,8 +151,7 @@ public:
         for(PerThreadData& d : datas)
         {
             _threads.emplace_back(
-                [this, &d,
-                 onExcep{std::forward<F>(onExcep)}]()
+                [this, &d, onExcep]()
                  {
                      data_ptr() = &d;
                      _run_ioc(_ioc, onExcep);
@@ -196,7 +201,7 @@ public:
 
 
     template<class F>
-    void start(size_t threads, F&& onExcep)
+    void start(size_t threads, F onExcep)
     {
         BOOST_ASSERT(threads >= ioc_cnt());
 
@@ -206,7 +211,7 @@ public:
 
         for(size_t i = 0; i < n; ++i)
         {
-            _srcs[i].start(d + (i < r), std::forward<F>(onExcep));
+            _srcs[i].start(d + (i < r), onExcep);
         }
     }
 
@@ -282,7 +287,7 @@ class [[nodiscard]] signal_set_request_stop_guard
 
 public:
     template<class Task>
-    signal_set_request_stop_guard(asio::signal_set& s, Task& t)
+    explicit signal_set_request_stop_guard(Task& t, asio::signal_set& s = default_signal_set())
         : _s{s}
     {
         _s.async_wait([&t](auto&& ec, int /*signal*/){
@@ -296,12 +301,6 @@ public:
         _s.cancel();
     }
 };
-
-template<class Task>
-auto default_signal_set_request_stop_guard(Task& t)
-{
-    return signal_set_request_stop_guard(default_signal_set(), t);
-}
 
 
 } // namespace jkl

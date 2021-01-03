@@ -29,10 +29,10 @@ using small_flat_multimap = flat_multimap<Key, T, Compare, small_vector<std::pai
 
 /// set
 
-template<class Key, class Compare = less, class AllocatorOrContainer = boost::container::new_allocator<std::pair<Key, T>>>
+template<class Key, class Compare = less, class AllocatorOrContainer = boost::container::new_allocator<Key>>
 using flat_set = boost::container::flat_set<Key, Compare, AllocatorOrContainer>;
 
-template<class Key, class Compare = less, class AllocatorOrContainer = boost::container::new_allocator<std::pair<Key, T>>>
+template<class Key, class Compare = less, class AllocatorOrContainer = boost::container::new_allocator<Key>>
 using flat_multiset = boost::container::flat_multiset<Key, Compare, AllocatorOrContainer>;
 
 template<class Key, size_t N, class Compare = less, class Allocator = void, class Options = void>

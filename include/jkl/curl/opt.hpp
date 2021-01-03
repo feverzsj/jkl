@@ -164,9 +164,12 @@ constexpr auto interleave_cb     = cb_opt<CURLOPT_INTERLEAVEFUNCTION     , CURLO
 constexpr auto fnmatch_cb        = cb_opt<CURLOPT_FNMATCH_FUNCTION       , CURLOPT_FNMATCH_DATA       , curl_fnmatch_callback       >;
 constexpr auto resolver_start_cb = cb_opt<CURLOPT_RESOLVER_START_FUNCTION, CURLOPT_RESOLVER_START_DATA, curl_resolver_start_callback>;
 
+constexpr auto disbale_write_cb  = writefunc([](char*, size_t size, size_t nmemb, void*) -> size_t { return size * nmemb; });
+constexpr auto disbale_header_cb = header_cb(static_cast<curl_write_callback>(nullptr), nullptr);
 
 // ERROR OPTIONS
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr auto errbuf(_buf_ auto& b)
 {
     return [&b](auto& h){
@@ -184,6 +187,7 @@ constexpr auto keep_sending_on_error = bool_opt<CURLOPT_KEEP_SENDING_ON_ERROR>;
 
 constexpr auto encoded_url = cstr_opt<CURLOPT_URL>; // assume the string is already url encoded
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr auto url(_str_ auto const& u)
 {
     return [&u](auto& h)
@@ -289,6 +293,7 @@ constexpr auto postfields(_byte_buf_ auto const& b)
     };
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr auto copypostfields(_byte_buf_ auto const& b)
 {
     return postfields<true>(b);
@@ -498,10 +503,10 @@ namespace jkl::curlmopt{
 
 constexpr auto chunk_length_penalty_size   = curlopt::long_opt<CURLMOPT_CHUNK_LENGTH_PENALTY_SIZE                             >;
 constexpr auto content_length_penalty_size = curlopt::long_opt<CURLMOPT_CONTENT_LENGTH_PENALTY_SIZE                           >;
-constexpr auto max_host_connections        = curlopt::long_opt<CURLMOPT_MAX_HOST_CONNECTIONS                                  >;
+constexpr auto max_connections             = curlopt::long_opt<CURLMOPT_MAX_TOTAL_CONNECTIONS                                 >;
+constexpr auto max_connection_cache        = curlopt::long_opt<CURLMOPT_MAXCONNECTS                                           >;
+constexpr auto max_per_host_connections    = curlopt::long_opt<CURLMOPT_MAX_HOST_CONNECTIONS                                  >;
 constexpr auto max_pipeline_length         = curlopt::long_opt<CURLMOPT_MAX_PIPELINE_LENGTH                                   >;
-constexpr auto max_total_connections       = curlopt::long_opt<CURLMOPT_MAX_TOTAL_CONNECTIONS                                 >;
-constexpr auto maxconnects                 = curlopt::long_opt<CURLMOPT_MAXCONNECTS                                           >;
 constexpr auto pipelining                  = curlopt::long_opt<CURLMOPT_PIPELINING                                            >;
 constexpr auto pushfunction                = curlopt::func_opt<CURLMOPT_PUSHFUNCTION               , curl_push_callback       >;
 constexpr auto pushdata                    = curlopt::data_opt<CURLMOPT_PUSHDATA                                              >;

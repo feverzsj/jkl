@@ -52,11 +52,13 @@ public:
     explicit operator bool() const noexcept { return _h.operator bool(); }
     auto handle() const noexcept { return _h.get(); }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     aresult<> try_set(CURLUPart what, _str_ auto const& part, unsigned flags = encode_on_set)
     {
         return curl_url_set(handle(), what, as_cstr(part).data(), flags);
     }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu& set(CURLUPart what, _str_ auto const& part, unsigned flags = encode_on_set)
     {
         throw_on_error(try_set(what, part, flags));
@@ -98,56 +100,89 @@ public:
 
     // set new url;
     // if s is a relative url and a url was already set, redirect the url to s
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu& url     (_str_ auto const& s, unsigned flags = 0            ) & { return set(CURLUPART_URL     , s, flags); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu& scheme  (_str_ auto const& s, unsigned flags = 0            ) & { return set(CURLUPART_SCHEME  , s, flags); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu& user    (_str_ auto const& s, unsigned flags = encode_on_set) & { return set(CURLUPART_USER    , s, flags); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu& password(_str_ auto const& s, unsigned flags = encode_on_set) & { return set(CURLUPART_PASSWORD, s, flags); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu& options (_str_ auto const& s, unsigned flags = encode_on_set) & { return set(CURLUPART_OPTIONS , s, flags); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu& host    (_str_ auto const& s, unsigned flags = encode_on_set) & { return set(CURLUPART_HOST    , s, flags); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu& port    (_str_ auto const& s, unsigned flags = 0            ) & { return set(CURLUPART_PORT    , s, flags); }
     curlu& port    (   unsigned short n, unsigned flags = 0            ) & { return port(stringify(n)     ,    flags); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu& path    (_str_ auto const& s, unsigned flags = encode_on_set) & { return set(CURLUPART_PATH    , s, flags); } // all '/' are preserved, other characters are percent encoded when encode_on_set.
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu& fragment(_str_ auto const& s, unsigned flags = encode_on_set) & { return set(CURLUPART_FRAGMENT, s, flags); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu& zoneid  (_str_ auto const& s, unsigned flags = encode_on_set) & { return set(CURLUPART_ZONEID  , s, flags); } // ipv6 zone id
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu&& url     (_str_ auto const& s, unsigned flags = 0            ) && { return std::move(url     (s, flags)); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu&& scheme  (_str_ auto const& s, unsigned flags = 0            ) && { return std::move(scheme  (s, flags)); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu&& user    (_str_ auto const& s, unsigned flags = encode_on_set) && { return std::move(user    (s, flags)); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu&& password(_str_ auto const& s, unsigned flags = encode_on_set) && { return std::move(password(s, flags)); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu&& options (_str_ auto const& s, unsigned flags = encode_on_set) && { return std::move(options (s, flags)); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu&& host    (_str_ auto const& s, unsigned flags = encode_on_set) && { return std::move(host    (s, flags)); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu&& port    (_str_ auto const& s, unsigned flags = 0            ) && { return std::move(port    (s, flags)); }
     curlu&& port    (   unsigned short n, unsigned flags = 0            ) && { return std::move(port    (n, flags)); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu&& path    (_str_ auto const& s, unsigned flags = encode_on_set) && { return std::move(path    (s, flags)); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu&& fragment(_str_ auto const& s, unsigned flags = encode_on_set) && { return std::move(fragment(s, flags)); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu&& zoneid  (_str_ auto const& s, unsigned flags = encode_on_set) && { return std::move(zoneid  (s, flags)); }
 
     // if flags & encode_on_set, 's' must has the form of "name=value", since only the first '=' is preserved, other characters are percent encoded
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu& set_query_str(_str_ auto const& s, unsigned flags = encode_on_set) & { return set(CURLUPART_QUERY, s, flags); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu& append_query_str(_str_ auto const& s, unsigned flags = encode_on_set) & { return set_query_str(s, flags | CURLU_APPENDQUERY); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu& query_str(_str_ auto const&... s) & { return (... , append_query_str(s)); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu& query(_str_ auto const& k, _stringifible_ auto const& v) & { return append_query_str(cat_str(k, '=', stringify(v))); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu& query(auto const&... kvs) & { return (... , query(kvs)); }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu&& set_query_str(_str_ auto const& s, unsigned flags = encode_on_set) && { return std::move(set_query_str(s, flags)); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu&& append_query_str(_str_ auto const& s, unsigned flags = encode_on_set) && { return std::move(append_query_str(s, flags)); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu&& query_str(_str_ auto const&... s) && { return std::move(query_str(s...)); }
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     curlu&& query(auto const&... kvs) && { return std::move(query(kvs...)); }
 };
 
 
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 curlstr encode_url(_str_ auto const& u){ return curlu{u}.url(); }
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 curlstr decode_url(_str_ auto const& u){ return curlu{u, 0}.decoded_url(); }
 
 
 // URL escape/unescape the whole string, so don't pass in whole url
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 curlstr curl_escape(_str_ auto const& s)
 {
     return curlstr(curl_easy_escape(nullptr, str_data(s), static_cast<int>(str_size(s))));
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 curlstr curl_unescape(_str_ auto const& s)
 {
     return curlstr(curl_easy_unescape(nullptr, str_data(s), static_cast<int>(str_size(s))));
@@ -159,10 +194,11 @@ template<size_t SmallSize>
 class url_query_t
 {
     string _q;
-    small_flat_multimap<std::string_view, std::string_view, SmallSize> _kvs;
+    small_flat_multimap<string_view, string_view, SmallSize> _kvs;
 
 public:
     url_query_t() = default;
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     explicit url_query_t(_str_ auto const& q) { set(q); }
 
     url_query_t(url_query_t const&) = delete;
@@ -172,11 +208,12 @@ public:
     {
         _q.clear();
         for(auto& kv : _kvs)
-            append_str(_q, k.first, '=', k.second);
+            append_str(_q, kv.first, '=', kv.second);
     }
 
     auto const& query() { if(_q.empty()) rebuild_query(); return _q; }
 
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
     void set(_str_ auto const& q)
     {
         _q.assign(str_data(q), str_size(q));
@@ -206,8 +243,8 @@ public:
             // pos is the end of this pair (the end of the string or the pair delimiter)
             // delimiter points to the value delimiter or to the end of this pair
 
-             _kvs.emplace(std::string_view{begin, delimiter - begin},
-                (pos > delimiter + 1) ? std::string_view{delimiter + 1, pos - delimiter - 1} : std::string_view{});
+             _kvs.emplace(string_view{begin, static_cast<string_view::size_type>(delimiter - begin)},
+                (pos > delimiter + 1) ? string_view{delimiter + 1, static_cast<string_view::size_type>(pos - delimiter - 1)} : string_view{});
 
             if(pos != end)
                 ++pos;
@@ -215,7 +252,6 @@ public:
     }
 
 };
-
 
 
 } // namespace jkl

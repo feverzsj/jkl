@@ -2,6 +2,7 @@
 
 #include <jkl/config.hpp>
 #include <jkl/util/str.hpp>
+#include <jkl/util/stringify.hpp>
 #include <jkl/charset/ascii.hpp>
 #include <jkl/uri/fwd.hpp>
 #include <jkl/uri/error.hpp>

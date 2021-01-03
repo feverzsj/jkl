@@ -36,13 +36,13 @@ struct robin_hood_hash
 
 /// map
 
-template<class Key, class T, class Hash = select_hash<robin_hood_hash, T>, class KeyEqual = equal_to, size_t MaxLoadFactor100 = 80>
+template<class Key, class T, class Hash = select_hash<robin_hood_hash, Key>, class KeyEqual = equal_to, size_t MaxLoadFactor100 = 80>
 using unordered_flat_map = robin_hood::unordered_flat_map<Key, T, Hash, KeyEqual, MaxLoadFactor100>;
 
-template<class Key, class T, class Hash = select_hash<robin_hood_hash, T>, class KeyEqual = equal_to, size_t MaxLoadFactor100 = 80>
+template<class Key, class T, class Hash = select_hash<robin_hood_hash, Key>, class KeyEqual = equal_to, size_t MaxLoadFactor100 = 80>
 using unordered_node_map = robin_hood::unordered_node_map<Key, T, Hash, KeyEqual, MaxLoadFactor100>;
 
-template<class Key, class T, class Hash = select_hash<robin_hood_hash, T>, class KeyEqual = equal_to, size_t MaxLoadFactor100 = 80>
+template<class Key, class T, class Hash = select_hash<robin_hood_hash, Key>, class KeyEqual = equal_to, size_t MaxLoadFactor100 = 80>
 using unordered_auto_map = robin_hood::unordered_map<Key, T, Hash, KeyEqual, MaxLoadFactor100>;
 
 /// set

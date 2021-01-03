@@ -12,11 +12,13 @@ namespace jkl{
 
 /// general
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr auto* buf_data(auto& b) noexcept requires(requires{ {b.data()} noexcept -> _pointer_; })
 {
     return b.data();
 }
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr size_t buf_size(auto const& b) noexcept requires(requires{ {b.size()} noexcept -> std::convertible_to<size_t>; })
 {
     return b.size();
@@ -46,6 +48,7 @@ constexpr T const* buf_data(std::initializer_list<T>& b) noexcept
 
 
 /// buf_ssize
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr ptrdiff_t buf_ssize(auto const& b) noexcept
 {
     return static_cast<ptrdiff_t>(buf_size(b));
@@ -87,27 +90,41 @@ concept _similar_buf_or_val_ = _buf_<B1> && (std::same_as<T, buf_value_t<B1>>
                                              || (_buf_<T> && std::same_as<buf_value_t<T>, buf_value_t<B1>>));
 
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr size_t buf_byte_size(_buf_ auto const& b) noexcept
 {
     return buf_size(b) * sizeof(*buf_data(b));
 };
 
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr auto* buf_begin(_buf_ auto& b) noexcept { return buf_data(b); }
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr auto* buf_end  (_buf_ auto& b) noexcept { return buf_data(b) + buf_size(b); }
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr auto& buf_front(_buf_ auto& b) noexcept { return *buf_data(b); }
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr auto& buf_back (_buf_ auto& b) noexcept { BOOST_ASSERT(buf_size(b) > 0); return *(buf_end(b) - 1); }
 
 
+// MSVC_WORKAROUND
+template<class B>
+concept __resize_buf_cond1 = requires(B& b, size_t n){ b.resize(n, boost::container::default_init); };
+template<class B>
+concept __resize_buf_cond2 = requires(B& b, size_t n){ b.__resize_default_init(n); };
 
+
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr void resize_buf(_buf_ auto& b, size_t n) noexcept(noexcept( b.resize(n)  ))
                                                    requires(requires{ b.resize(n); })
 {
-    if constexpr(requires{ b.resize(n, boost::container::default_init); })
+    //if constexpr(requires{ b.resize(n, boost::container::default_init); })
+    if constexpr(__resize_buf_cond1<decltype(b)>)
         b.resize(n, boost::container::default_init);
     //else if constexpr(requires{ b.resize_default_init(n, [n](auto&&...){ return n; }); }) // p1072r5
     //    b.resize_default_init(n, [n](auto&&...){ return n; });
-    else if constexpr(requires{ b.__resize_default_init(n); }) // std::basic_string of libc++ >= 8.0
+    //else if constexpr(requires{ b.__resize_default_init(n); }) // std::basic_string of libc++ >= 8.0
+    else if constexpr(__resize_buf_cond2<decltype(b)>)
         b.__resize_default_init(n);
     else
         b.resize(n);
@@ -120,19 +137,30 @@ template<class B> concept _resizable_char_buf_ = _resizable_buf_of_<B, char>;
 template<class B> concept _resizable_byte_buf_ = _resizable_buf_<B> && _byte_<buf_value_t<B>>;
 template<class B> concept _resizable_16bits_buf_ = _resizable_buf_<B> && _16bits_<buf_value_t<B>>;
 
+// MSVC_WORKAROUND
+template<class B>
+concept __clear_buf_cond1 = requires(B& b){ b.clear(); };
 
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr void clear_buf(_resizable_buf_ auto& b) noexcept(noexcept(resize_buf(b, 0)))
 {
-    if constexpr(requires{ b.clear(); })
+    //if constexpr(requires{ b.clear(); })
+    if constexpr(__clear_buf_cond1<decltype(b)>)
         b.clear();
     else
         resize_buf(b, 0);
 }
 
+// MSVC_WORKAROUND
+template<class B>
+concept __rescale_buf_cond1 = requires(B& b){ b.capacity(); };
+
 // resize without preserving existing data
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr void rescale_buf(_resizable_buf_ auto& b, size_t n) noexcept(noexcept(resize_buf(b, n)))
 {
-    if constexpr(requires{ b.capacity(); })
+    //if constexpr(requires{ b.capacity(); })
+    if constexpr(__rescale_buf_cond1<decltype(b)>)
     {
         if(n > static_cast<size_t>(b.capacity()))
             clear_buf(b);
@@ -144,6 +172,7 @@ constexpr void rescale_buf(_resizable_buf_ auto& b, size_t n) noexcept(noexcept(
 
 // "buy" a sub buffer of size 'n' from 'b' start at end of 'b',
 // return the begin of sub buffer.
+_JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
 constexpr auto* buy_buf(_resizable_buf_ auto& b, size_t n) noexcept(noexcept(resize_buf(b, n)))
 {
     size_t off = buf_size(b);
