@@ -9,7 +9,7 @@
 
 
 # Introduction
-A `protobuf` DSL for C++. Using this module, you can write somthing similar to `protobuf` IDL directly in C++, and directly serialize/deserialize from/to your object without intermediate message object. For example:
+A `protobuf` DSL for C++. Using this module, you can write something similar to `protobuf` IDL directly in C++, and directly serialize/deserialize from/to your object without intermediate message object. For example:
 
 <table>
 <tr><th>Protobuf</th> <th>C++</th></tr>
@@ -204,14 +204,14 @@ Same as: `p_has_val([](auto& d){ return val(d) != DefaultValue; }), p_clear_val(
 
 Implies optional field.
 
-## p_get_member(auto&(auto& d, _integral_constant_ auto I))
+## p_get_member(auto&(auto& d, `_integral_constant_` auto I))
 Specify how to get Ith member of oneof field value.
 
 `I` is assured to be large than 0.
 
 NOTE: valid member index starts from `1`. `0` index means there is no active member, i.e. the value is empty.
 
-## p_activate_member(void(auto& d, _integral_constant_ auto I))
+## p_activate_member(void(auto& d, `_integral_constant_` auto I))
 Specify how to activate Ith member of oneof field value.
 
 if `I == 0`, the field value should be cleared.
