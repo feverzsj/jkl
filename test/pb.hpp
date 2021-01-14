@@ -3,7 +3,7 @@
 #include <jkl/util/log.hpp>
 #include <jkl/pb/varint.hpp>
 #include <jkl/pb/dsl.hpp>
-#include <simdjson.h>
+#include <unordered_map>
 
 #define DOCTEST_CONFIG_TREAT_CHAR_STAR_AS_STRING
 #include <doctest/doctest.h>
@@ -254,13 +254,13 @@ TEST_CASE("fixed field"){
         bool    boolMem = true;
         int32_t sfixed32Mem = -123456;
         float   floatArrMem[2] = {1.226f, 20.1f};
-        constexpr auto operator<=>(fixed_sub_sub_msg_t const&) const = default;
+        constexpr bool operator==(fixed_sub_sub_msg_t const&) const = default;
     };
 
     constexpr auto fixed_sub_sub_msg = pb_message<"fixed_sub_sub_msg">(
         pb_bool             <"boolMem"    , 1>(   JKL_P_VAL(d.boolMem    )),
         pb_sfixed32         <"sfixed32Mem", 2>(   JKL_P_VAL(d.sfixed32Mem)),
-        pb_repeated(pb_float<"floatArrMem", 3>(), JKL_P_VAL(d.floatArrMem), JKL_P_CLEAR_VAL(d))
+        pb_repeated(pb_float<"floatArrMem", 3>(), JKL_P_VAL(d.floatArrMem), JKL_P_CLEAR_VAL(d.floatArrMem[0]={0.f}))
     );
 
     struct fixed_sub_msg_t
@@ -274,19 +274,19 @@ TEST_CASE("fixed field"){
         double  doubleMem = 16545684341242.135463021;
         fixed_sub_sub_msg_t subSubMsgMem;
         fixed_sub_sub_msg_t subSubMsgArrMem[6];
-        constexpr auto operator<=>(fixed_sub_msg_t const&) const = default;
+        constexpr bool operator==(fixed_sub_msg_t const&) const = default;
     };
 
     constexpr auto fixed_sub_msg = pb_message<"fixed_sub_msg">(
-        pb_repeated(pb_fixed64 <"fixed64ArrMem" , 1>(), JKL_P_VAL(d.fixed64ArrMem), JKL_P_CLEAR_VAL(d)),
-        pb_repeated(pb_sfixed32<"sfixed32ArrMem", 2>(), JKL_P_VAL(d.sfixed32ArrMem), JKL_P_CLEAR_VAL(d)),
-        pb_repeated(pb_sfixed64<"sfixed64ArrMem", 3>(), JKL_P_VAL(d.sfixed64ArrMem), JKL_P_CLEAR_VAL(d)),
-        pb_repeated(pb_float   <"floatArrMem"   , 4>(), JKL_P_VAL(d.floatArrMem), JKL_P_CLEAR_VAL(d)),
-        pb_repeated(pb_double  <"doubleArrMem"  , 5>(), JKL_P_VAL(d.doubleArrMem), JKL_P_CLEAR_VAL(d)),
+        pb_repeated(pb_fixed64 <"fixed64ArrMem" , 1>(), JKL_P_VAL(d.fixed64ArrMem), JKL_P_CLEAR_VAL(d.fixed64ArrMem[0]=false)),
+        pb_repeated(pb_sfixed32<"sfixed32ArrMem", 2>(), JKL_P_VAL(d.sfixed32ArrMem), JKL_P_CLEAR_VAL(d.sfixed32ArrMem[0]=0)),
+        pb_repeated(pb_sfixed64<"sfixed64ArrMem", 3>(), JKL_P_VAL(d.sfixed64ArrMem), JKL_P_CLEAR_VAL(d.sfixed64ArrMem[0]=0)),
+        pb_repeated(pb_float   <"floatArrMem"   , 4>(), JKL_P_VAL(d.floatArrMem), JKL_P_CLEAR_VAL(d.floatArrMem[0]=0.f)),
+        pb_repeated(pb_double  <"doubleArrMem"  , 5>(), JKL_P_VAL(d.doubleArrMem), JKL_P_CLEAR_VAL(d.doubleArrMem[0]=0)),
         pb_float               <"floatMem"      , 6>(   JKL_P_VAL(d.floatMem)),
         pb_double              <"doubleMem"     , 7>(   JKL_P_VAL(d.doubleMem)),
         fixed_sub_sub_msg._    <"subSubMsgMem"  , 8>(   JKL_P_VAL(d.subSubMsgMem)),
-        pb_repeated(fixed_sub_sub_msg._<"subSubMsgArrMem", 9>(), JKL_P_VAL(d.subSubMsgArrMem), JKL_P_CLEAR_VAL(d))
+        pb_repeated(fixed_sub_sub_msg._<"subSubMsgArrMem", 9>(), JKL_P_VAL(d.subSubMsgArrMem), JKL_P_CLEAR_VAL(d.subSubMsgArrMem[0].boolMem=false))
     );
 
     struct fixed_msg_t{
@@ -301,7 +301,7 @@ TEST_CASE("fixed field"){
         uint32_t        fixed32ArrMem[6] = {1, 2, 3, 4, 5, 6};
         fixed_sub_msg_t subMsgMem;
         fixed_sub_msg_t subMsgArrMem[6];
-        constexpr auto operator<=>(fixed_msg_t const&) const = default;
+        constexpr bool operator==(fixed_msg_t const&) const = default;
     };
 
     constexpr auto fixed_msg = pb_message<"fixed_msg">(
@@ -312,10 +312,10 @@ TEST_CASE("fixed field"){
         pb_fixed64            <"fixed64Mem"   , 5 >(   JKL_P_VAL(d.fixed64Mem   )),
         pb_float              <"floatMem"     , 6 >(   JKL_P_VAL(d.floatMem     )),
         pb_double             <"doubleMem"    , 7 >(   JKL_P_VAL(d.doubleMem    )),
-        pb_repeated(pb_bool   <"boolArrMem"   , 8 >(), JKL_P_VAL(d.boolArrMem   ), JKL_P_CLEAR_VAL(d)),
-        pb_repeated(pb_fixed32<"fixed32ArrMem", 9 >(), JKL_P_VAL(d.fixed32ArrMem), JKL_P_CLEAR_VAL(d)),
+        pb_repeated(pb_bool   <"boolArrMem"   , 8 >(), JKL_P_VAL(d.boolArrMem   ), JKL_P_CLEAR_VAL(d.boolArrMem[0]=false)),
+        pb_repeated(pb_fixed32<"fixed32ArrMem", 9 >(), JKL_P_VAL(d.fixed32ArrMem), JKL_P_CLEAR_VAL(d.fixed32ArrMem[0]=0)),
         fixed_sub_msg._       <"subMsgMem"    , 10>(   JKL_P_VAL(d.subMsgMem    )),
-        pb_repeated(fixed_sub_msg._<"subMsgArrMem", 11>(), JKL_P_VAL(d.subMsgArrMem), JKL_P_CLEAR_VAL(d))
+        pb_repeated(fixed_sub_msg._<"subMsgArrMem", 11>(), JKL_P_VAL(d.subMsgArrMem), JKL_P_CLEAR_VAL(d.subMsgArrMem[0].fixed64ArrMem[0]=0))
     );
 
     static_assert(JKL_CEVL(fixed_msg.is_static_len(fixed_msg_t{})));
@@ -334,7 +334,6 @@ TEST_CASE("fixed field"){
     CHECK(readFixedMsg == fixed_msg_t{});
 
     auto def = pb_gen_def(fixed_sub_sub_msg, fixed_sub_msg, fixed_msg);
-
 } // TEST_CASE("fixed field")
 
 TEST_CASE("optional field"){
@@ -343,7 +342,7 @@ TEST_CASE("optional field"){
         bool                    defaultBoolMem = true;
         std::optional<int32_t>  optInt32Mem = -32156411;
         int64_t                 defaultInt64Mem = 4613246761313;
-        constexpr auto operator<=>(sub_msg_t const&) const = default;
+        constexpr bool operator==(sub_msg_t const&) const = default;
         static sub_msg_t diff_sample()
         {
             return {false, 1, 2};
@@ -381,7 +380,7 @@ TEST_CASE("optional field"){
         char                    fixedBytesMem[6] = {1, 2, 3, 4, 5, 6};
         sub_msg_t                subMsgMem;
         std::optional<sub_msg_t> optSubMsgMem;
-        constexpr auto operator<=>(msg_t const&) const = default;
+        bool operator==(msg_t const&) const = default;
         static msg_t diff_sample()
         {
             msg_t m;
@@ -403,7 +402,7 @@ TEST_CASE("optional field"){
             m.optDynaBytesMem = std::vector<char>{6, 5, 4, 3, 2, 1};
             m.optStringMem2 = "something2";
             m.optDynaBytesMem2 = std::vector<char>{6, 6, 6, 6, 2, 2};
-            memset(m.fixedBytesMem, sizeof(m.fixedBytesMem), 0);
+            memset(m.fixedBytesMem, 0, sizeof(m.fixedBytesMem));
             m.subMsgMem = sub_msg_t::diff_sample();
             m.optSubMsgMem = sub_msg_t::diff_sample();
             return m;
@@ -422,12 +421,12 @@ TEST_CASE("optional field"){
         pb_sfixed32<"sfixed32Mem"      , 7 >(JKL_P_VAL(d.sfixed32Mem), JKL_P_HAS_VAL(d.sfixed32Mem != -1239045), JKL_P_CLEAR_VAL(d.sfixed32Mem = -1239045)),
         pb_sfixed64<"optSfixed64Mem"   , 8 >(JKL_P_VAL(d.optSfixed64Mem), p_optional),
         pb_fixed32 <"optFixed32Mem"    , 9 >(JKL_P_VAL(d.optFixed32Mem), p_optional),
-        pb_fixed64 <"defaultFixed64Mem", 10>(JKL_P_VAL(d.defaultFixed64Mem), p_default(0)),
+        pb_fixed64 <"defaultFixed64Mem", 10>(JKL_P_VAL(d.defaultFixed64Mem), p_default(0u)),
         pb_float   <"optFloatMem"      , 11>(JKL_P_VAL(d.optFloatMem), p_optional),
         pb_double  <"optDoubleMem"     , 12>(JKL_P_VAL(d.optDoubleMem), p_optional),
         pb_string<"optStringMem"       , 15>(JKL_P_VAL(d.optStringMem), p_optional),
         pb_bytes <"optDynaBytesMem"    , 16>(JKL_P_VAL(d.optDynaBytesMem), p_optional),
-        pb_string<"optStringMem2"      , 66>(JKL_P_VAL(d.optStringMem2), p_optional, JKL_P_VALIDATE(simdjson::validate_utf8(d.optStringMem2))),
+        pb_string<"optStringMem2"      , 66>(JKL_P_VAL(d.optStringMem2), p_optional),
         pb_bytes <"optDynaBytesMem2"   , 96>(JKL_P_VAL(d.optDynaBytesMem2), p_optional),
         pb_bytes <"fixedBytesMem"      , 19>(JKL_P_VAL(d.fixedBytesMem), JKL_P_HAS_VAL(d.fixedBytesMem[0] != 0), JKL_P_CLEAR_VAL(d.fixedBytesMem[0] = 0)),
         sub_msg._<"subMsgMem"          , 25>(JKL_P_VAL(d.subMsgMem)),
@@ -449,8 +448,7 @@ TEST_CASE("optional field"){
     CHECK_NOTHROW(msg.full_read(buf, readMsg).throw_on_error());
     CHECK(readMsg == m);
 
-    auto def = pb_gen_def(msg);
-
+    auto def = pb_gen_def(sub_msg, msg);
 } // TEST_CASE("optional field")
 
 TEST_CASE("map field"){
@@ -458,7 +456,7 @@ TEST_CASE("map field"){
     {
         int64_t                 defaultInt64Mem = 4613246761313;
         std::map<int32_t, string> mapMem = {{1, "1"}, {2, "2"}};
-        constexpr auto operator<=>(sub_msg_t const&) const = default;
+        bool operator==(sub_msg_t const&) const = default;
         static sub_msg_t diff_sample()
         {
             return {1, {{6, "6"}, {9, "9"}}};
@@ -487,7 +485,7 @@ TEST_CASE("map field"){
         std::vector<std::pair<string, sub_msg_t>> vecMem3 = {{"1", {1}}, {"2", {2}}};
         std::unordered_map<string, sub_msg_t> unMapMem3 = {{"1", {1}}, {"2", {2}}};
 
-        constexpr auto operator<=>(msg_t const&) const = default;
+        bool operator==(msg_t const&) const = default;
 
         static msg_t diff_sample()
         {
@@ -540,7 +538,7 @@ TEST_CASE("oneof field"){
     {
         int64_t defaultInt64Mem = 4613246761313;
         std::variant<std::monostate, int32_t, string, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t> oneofMem = "1";
-        constexpr auto operator<=>(sub_msg_t const&) const = default;
+        constexpr bool operator==(sub_msg_t const&) const = default;
         static sub_msg_t diff_sample()
         {
             return {266, std::monostate{}};
@@ -584,7 +582,7 @@ TEST_CASE("oneof field"){
                 new (&oneofMemStr) string{r.oneofMemStr};
         }
 
-        constexpr auto operator==(msg_t const& r) const// = default;
+        constexpr bool operator==(msg_t const& r) const// = default;
         {
             if(subMsgMem == r.subMsgMem)
             {
@@ -616,14 +614,14 @@ TEST_CASE("oneof field"){
             pb_string  <"oneofMemStr", 3>()
         )(
             p_get_member([](auto& d, auto I) -> auto& {
-                static_assert(0 < I && I < 9); // 0 for no member
+                static_assert(0u < I && I < 9u); // 0 for no member
                 BOOST_ASSERT(d.idx == I);
-                if constexpr(I == 1) return d.oneofMemInt;
+                if constexpr(I == 1u) return d.oneofMemInt;
                 else return d.oneofMemStr;
             }),
             p_activate_member([](auto& d, auto I){
-                static_assert(0 <= I && I < 9);
-                if constexpr(I == 2)
+                static_assert(0u <= I && I < 9u);
+                if constexpr(I == 2u)
                 {
                     if(d.idx != 2)
                         new (&d.oneofMemStr) string{};
@@ -650,7 +648,6 @@ TEST_CASE("oneof field"){
     CHECK(readMsg == m);
 
     auto def = pb_gen_def(sub_msg, msg);
-
 } // TEST_CASE("oneof field")
 
 } // TEST_SUITE("pb")

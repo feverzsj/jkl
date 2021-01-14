@@ -164,8 +164,11 @@ constexpr auto tr_size(U const& u) noexcept requires(_tuple_<U> || _range_<U>)
 template<size_t I = 0>
 BOOST_FORCEINLINE decltype(auto) visit1(auto&& v, auto&& f)
 {
-    if(BOOST_UNLIKELY(v.valueless_by_exception()))
-        throw std::bad_variant_access{};
+    if constexpr(I == 0)
+    {
+        if(BOOST_UNLIKELY(v.valueless_by_exception()))
+            throw std::bad_variant_access{};
+    }
 
     constexpr auto vs = std::variant_size_v<JKL_DECL_NO_CVREF_T(v)>;
 
@@ -196,7 +199,7 @@ BOOST_FORCEINLINE decltype(auto) visit1(auto&& v, auto&& f)
     // if constexpr(next_idx < vs) causes some weird msvc bug
     if constexpr(next_idx + 0 < vs)
     {
-        return visit1<next_idx>(JKL_FORWARD(f), JKL_FORWARD(v));
+        return visit1<next_idx>(JKL_FORWARD(v), JKL_FORWARD(f));
     }
 
     BOOST_UNREACHABLE_RETURN(JKL_FORWARD(f)(std::get<0>(JKL_FORWARD(v)), size_c<0>));

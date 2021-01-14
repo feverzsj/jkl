@@ -30,8 +30,6 @@ constexpr bool exam_utf8(_str_ auto const& s)
 
 TEST_CASE("varint encode benchmark"){
 
-    system("pause");
-    
     nanobench::Bench b;
     b.title("varint encode")
         .relative(true)
@@ -40,7 +38,7 @@ TEST_CASE("varint encode benchmark"){
         ;
 
     uint8_t buf[max_varint_wire_size<uint64_t>] = {};
-    
+
     b.run("google uint32_t", [&]{
         nanobench::doNotOptimizeAway(
             google::protobuf::io::CodedOutputStream::WriteVarint32ToArray(static_cast<uint32_t>(2961488830), buf));
@@ -131,7 +129,7 @@ TEST_CASE("GoogleMessage1"){
 
     struct GoogleMessage1SubMessage_t
     {
-        constexpr auto operator<=>(GoogleMessage1SubMessage_t const&) const = default;
+        constexpr bool operator==(GoogleMessage1SubMessage_t const&) const = default;
 
         int32_t field1 = 0;
         int32_t field2 = 0;
@@ -159,7 +157,7 @@ TEST_CASE("GoogleMessage1"){
         pb_int32  <"field1"  , 1  >(JKL_P_VAL(d.field1  ), p_default(0)),
         pb_int32  <"field2"  , 2  >(JKL_P_VAL(d.field2  ), p_default(0)),
         pb_int32  <"field3"  , 3  >(JKL_P_VAL(d.field3  ), p_default(0)),
-        pb_string <"field15" , 15 >(JKL_P_VAL(d.field15 ), p_optional, JKL_P_VALIDATE(exam_utf8(d.field15))),
+        pb_string <"field15" , 15 >(JKL_P_VAL(d.field15 ), p_optional, JKL_P_CHECK(exam_utf8(d.field15))),
         pb_bool   <"field12" , 12 >(JKL_P_VAL(d.field12 ), p_default(true)),
         pb_int64  <"field13" , 13 >(JKL_P_VAL(d.field13 ), p_optional),
         pb_int64  <"field14" , 14 >(JKL_P_VAL(d.field14 ), p_optional),
@@ -173,14 +171,14 @@ TEST_CASE("GoogleMessage1"){
         pb_bool   <"field206", 206>(JKL_P_VAL(d.field206), p_default(false)),
         pb_fixed32<"field203", 203>(JKL_P_VAL(d.field203), p_optional),
         pb_int32  <"field204", 204>(JKL_P_VAL(d.field204), p_optional),
-        pb_string <"field205", 205>(JKL_P_VAL(d.field205), p_optional, JKL_P_VALIDATE(exam_utf8(d.field205))),
+        pb_string <"field205", 205>(JKL_P_VAL(d.field205), p_optional, JKL_P_CHECK(exam_utf8(d.field205))),
         pb_uint64 <"field207", 207>(JKL_P_VAL(d.field207), p_optional),
         pb_uint64 <"field300", 300>(JKL_P_VAL(d.field300), p_optional)
     );
 
     struct GoogleMessage1_t
     {
-        constexpr auto operator<=>(GoogleMessage1_t const&) const noexcept = default;
+        bool operator==(GoogleMessage1_t const&) const noexcept = default;
 
         string field1;
         string field9;
@@ -226,21 +224,21 @@ TEST_CASE("GoogleMessage1"){
     };
 
     constexpr auto GoogleMessage1 = pb_message<"GoogleMessage1">(
-        pb_string  <"field1"  , 1  >(JKL_P_VAL(d.field1  ), JKL_P_VALIDATE(exam_utf8(d.field1))), 
-        pb_string  <"field9"  , 9  >(JKL_P_VAL(d.field9  ), p_optional, JKL_P_VALIDATE(exam_utf8(d.field9))), 
-        pb_string  <"field18" , 18 >(JKL_P_VAL(d.field18 ), p_optional, JKL_P_VALIDATE(exam_utf8(d.field18))), 
+        pb_string  <"field1"  , 1  >(JKL_P_VAL(d.field1  ), JKL_P_CHECK(exam_utf8(d.field1))),
+        pb_string  <"field9"  , 9  >(JKL_P_VAL(d.field9  ), p_optional, JKL_P_CHECK(exam_utf8(d.field9))),
+        pb_string  <"field18" , 18 >(JKL_P_VAL(d.field18 ), p_optional, JKL_P_CHECK(exam_utf8(d.field18))),
         pb_bool    <"field80" , 80 >(JKL_P_VAL(d.field80 ), p_default(false)),
         pb_bool    <"field81" , 81 >(JKL_P_VAL(d.field81 ), p_default(true)),
-        pb_int32   <"field2"  , 2  >(JKL_P_VAL(d.field2  )), 
-        pb_int32   <"field3"  , 3  >(JKL_P_VAL(d.field3  )), 
-        pb_int32   <"field280", 280>(JKL_P_VAL(d.field280), p_optional), 
+        pb_int32   <"field2"  , 2  >(JKL_P_VAL(d.field2  )),
+        pb_int32   <"field3"  , 3  >(JKL_P_VAL(d.field3  )),
+        pb_int32   <"field280", 280>(JKL_P_VAL(d.field280), p_optional),
         pb_int32   <"field6"  , 6  >(JKL_P_VAL(d.field6  ), p_default(0)),
-        pb_int64   <"field22" , 22 >(JKL_P_VAL(d.field22 ), p_optional), 
-        pb_string  <"field4"  , 4  >(JKL_P_VAL(d.field4  ), p_optional, JKL_P_VALIDATE(exam_utf8(d.field4))), 
-        pb_repeated(pb_fixed64<"field5", 5>(), JKL_P_VAL(d.field5)), 
+        pb_int64   <"field22" , 22 >(JKL_P_VAL(d.field22 ), p_optional),
+        pb_string  <"field4"  , 4  >(JKL_P_VAL(d.field4  ), p_optional, JKL_P_CHECK(exam_utf8(d.field4))),
+        pb_repeated(pb_fixed64<"field5", 5>(), JKL_P_VAL(d.field5)),
         pb_bool    <"field59" , 59 >(JKL_P_VAL(d.field59 ), p_default(false)),
-        pb_string  <"field7"  , 7  >(JKL_P_VAL(d.field7  ), p_optional, JKL_P_VALIDATE(exam_utf8(d.field7))), 
-        pb_int32   <"field16" , 16 >(JKL_P_VAL(d.field16 ), p_optional), 
+        pb_string  <"field7"  , 7  >(JKL_P_VAL(d.field7  ), p_optional, JKL_P_CHECK(exam_utf8(d.field7))),
+        pb_int32   <"field16" , 16 >(JKL_P_VAL(d.field16 ), p_optional),
         pb_int32   <"field130", 130>(JKL_P_VAL(d.field130), p_default(0)),
         pb_bool    <"field12" , 12 >(JKL_P_VAL(d.field12 ), p_default(true)),
         pb_bool    <"field17" , 17 >(JKL_P_VAL(d.field17 ), p_default(true)),
@@ -249,14 +247,14 @@ TEST_CASE("GoogleMessage1"){
         pb_int32   <"field104", 104>(JKL_P_VAL(d.field104), p_default(0)),
         pb_int32   <"field100", 100>(JKL_P_VAL(d.field100), p_default(0)),
         pb_int32   <"field101", 101>(JKL_P_VAL(d.field101), p_default(0)),
-        pb_string  <"field102", 102>(JKL_P_VAL(d.field102), p_optional, JKL_P_VALIDATE(exam_utf8(d.field102))), 
-        pb_string  <"field103", 103>(JKL_P_VAL(d.field103), p_optional, JKL_P_VALIDATE(exam_utf8(d.field103))), 
+        pb_string  <"field102", 102>(JKL_P_VAL(d.field102), p_optional, JKL_P_CHECK(exam_utf8(d.field102))),
+        pb_string  <"field103", 103>(JKL_P_VAL(d.field103), p_optional, JKL_P_CHECK(exam_utf8(d.field103))),
         pb_int32   <"field29" , 29 >(JKL_P_VAL(d.field29 ), p_default(0)),
         pb_bool    <"field30" , 30 >(JKL_P_VAL(d.field30 ), p_default(false)),
         pb_int32   <"field60" , 60 >(JKL_P_VAL(d.field60 ), p_default(-1)),
         pb_int32   <"field271", 271>(JKL_P_VAL(d.field271), p_default(-1)),
         pb_int32   <"field272", 272>(JKL_P_VAL(d.field272), p_default(-1)),
-        pb_int32   <"field150", 150>(JKL_P_VAL(d.field150), p_optional), 
+        pb_int32   <"field150", 150>(JKL_P_VAL(d.field150), p_optional),
         pb_int32   <"field23" , 23 >(JKL_P_VAL(d.field23 ), p_default(0)),
         pb_bool    <"field24" , 24 >(JKL_P_VAL(d.field24 ), p_default(false)),
         pb_int32   <"field25" , 25 >(JKL_P_VAL(d.field25 ), p_default(0)),
@@ -265,7 +263,7 @@ TEST_CASE("GoogleMessage1"){
         pb_int32   <"field67" , 67 >(JKL_P_VAL(d.field67 ), p_default(0)),
         pb_int32   <"field68" , 68 >(JKL_P_VAL(d.field68 ), p_optional),
         pb_int32   <"field128", 128>(JKL_P_VAL(d.field128), p_default(0)),
-        pb_string  <"field129", 129>(JKL_P_VAL(d.field129), p_default(string_view("xxxxxxxxxxxxxxxxxxxxx")), JKL_P_VALIDATE(exam_utf8(d.field129))),
+        pb_string  <"field129", 129>(JKL_P_VAL(d.field129), p_default(string_view("xxxxxxxxxxxxxxxxxxxxx")), JKL_P_CHECK(exam_utf8(d.field129))),
         pb_int32   <"field131", 131>(JKL_P_VAL(d.field131), p_default(0))
     );
 
@@ -292,7 +290,7 @@ TEST_CASE("GoogleMessage1"){
         b.run("google.protobuf", [&]{
             nanobench::doNotOptimizeAway(gm.SerializeToString(&buf));
         });
-        
+
         b.run("jkl.pb", [&]{
             GoogleMessage1.write(buf, m);
             nanobench::doNotOptimizeAway(m);

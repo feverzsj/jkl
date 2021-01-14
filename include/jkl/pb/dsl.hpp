@@ -21,7 +21,7 @@ namespace jkl{
 // modules proto2
 //
 // limitations:
-//      enum, sub message not supported;
+//      enum, embedded message not supported;
 //      repeated field cannot be interleaved;
 //      merging message(which contains required sub fields) is not supported, so a non repeated message field can only present on wire once;
 //      by default strings are not validated as utf8.
@@ -47,7 +47,7 @@ constexpr S pb_gen_def(auto const&... msgs)
 
     S def;
 
-    append_str(def,  "syntax = \"proto2\"\n\n");
+    append_str(def,  "syntax = \"proto2\";\n\n");
 
     if constexpr(sizeof...(ExtraHeaders))
     {
@@ -69,7 +69,7 @@ constexpr bool is_pb_reserved_word(_str_ auto const& s) noexcept
 }
 
 
-inline constexpr struct t_validate_t {} t_validate;
+inline constexpr struct t_check_t    {} t_check;
 inline constexpr struct t_val_t      {} t_val;
 inline constexpr struct t_optional_t {} t_optional;
 inline constexpr struct t_default_t  {} t_default;
@@ -79,7 +79,7 @@ inline constexpr struct t_get_member_t       {} t_get_member;
 inline constexpr struct t_activate_member_t  {} t_activate_member;
 inline constexpr struct t_active_member_idx_t{} t_active_member_idx;
 
-inline constexpr auto p_validate  = p_forward<t_validate_t>; // on successful reading, corresponding validator will be called, it may return boolean, error_code or aresult<.
+inline constexpr auto p_check = p_forward<t_check_t>; // on successfully reading a message, corresponding checker will be called, it may return boolean, error_code or aresult<.
 
 inline constexpr auto p_optional  = [](t_optional_t){ return  true; }; // value is std::optional or _buf_(for bytes/string fields) like, implies optional field
 inline constexpr auto p_required  = [](t_optional_t){ return false; };
@@ -94,7 +94,7 @@ inline constexpr auto p_activate_member   = p_forward<t_activate_member_t  >;
 inline constexpr auto p_active_member_idx = p_forward<t_active_member_idx_t>;
 
 
-#define JKL_P_VALIDATE(Expr) p_validate([](auto& d) { return Expr; })
+#define JKL_P_CHECK(Expr) p_check([](auto& d) { return Expr; })
 // e.g.: JKL_P_VAL(d.m)
 #define JKL_P_VAL(Expr) p_val([](auto& d) -> auto& { return Expr; })
 // e.g.: JKL_P_HAS_VAL(d.m.has_value())
@@ -145,7 +145,7 @@ struct pb_params
     static constexpr bool has_validate    = ! is_null_op_v<Validate >;
 
     // NOTE: is_optional are overridden in pb_repeated_fld and pb_oneof_fld to be always true
-    static constexpr bool is_optional = is_optional_uval || has_default || (has_has_val && has_clear_val);
+    static constexpr bool is_optional = is_optional_uval || has_default || has_has_val || has_clear_val;
 
     [[no_unique_address]] Uval      _uval;
     [[no_unique_address]] Default   _default;
@@ -308,17 +308,17 @@ constexpr auto make_pb_params(auto&&... p)
 {
     auto m = make_params(JKL_FORWARD(p)..., p_required, p_val(null_op), p_default(null_op), p_has_val(null_op), p_clear_val(null_op),
                                             p_get_member(null_op), p_activate_member(null_op), p_active_member_idx(null_op),
-                                            p_validate(null_op));
+                                            p_check(null_op));
 
     return pb_params<m(t_optional),
         JKL_DECL_NO_CVREF_T(m(t_val)),        JKL_DECL_NO_CVREF_T(m(t_default)),         JKL_DECL_NO_CVREF_T(m(t_has_val)),
         JKL_DECL_NO_CVREF_T(m(t_clear_val)),
         JKL_DECL_NO_CVREF_T(m(t_get_member)), JKL_DECL_NO_CVREF_T(m(t_activate_member)), JKL_DECL_NO_CVREF_T(m(t_active_member_idx)),
-        JKL_DECL_NO_CVREF_T(m(t_validate))>{
+        JKL_DECL_NO_CVREF_T(m(t_check))>{
                             m(t_val),                             m(t_default),                              m(t_has_val),
                             m(t_clear_val),
                             m(t_get_member),                      m(t_activate_member),                      m(t_active_member_idx),
-                            m(t_validate)};
+                            m(t_check)};
 }
 
 static_assert(std::is_same_v<pb_null_params, decltype(make_pb_params())>);
@@ -352,6 +352,34 @@ struct pb_fld : Params
 
     constexpr Derived      * derived()       noexcept { return static_cast<Derived*>(this); }
     constexpr Derived const* derived() const noexcept { return static_cast<Derived const*>(this); }
+
+
+    template<strlit RName, uint32_t RId>
+    constexpr auto rebind_name_id() const noexcept
+    {
+        return derived()->template rebind<RName, RId>(static_cast<Params const&>(*this));
+    }
+
+    template<strlit RName, uint32_t RId>
+    constexpr auto rebind_name_id_u(auto&& v) const noexcept
+    {
+        return derived()->template rebind<RName, RId>(Params::rebind_uval(JKL_FORWARD(v)));
+    }
+
+    // rebind_name_id_params
+    template<strlit RName, uint32_t RId>
+    constexpr auto _(auto&&... p) const noexcept
+    {
+        return derived()->template rebind<RName, RId>(make_pb_params(JKL_FORWARD(p)...));
+    }
+
+    // rebind_params
+    _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
+    constexpr auto operator()(auto&&... p) const noexcept
+    {
+        return derived()->template rebind<Name, Id>(make_pb_params(JKL_FORWARD(p)...));
+    }
+
 
     template<_resizable_byte_buf_ S = string>
     constexpr S fld_def() const
@@ -536,7 +564,7 @@ struct pb_fld : Params
 
 // wire fmt: tag|varint
 // expected value type: _arithmetic_
-// available params: p_val, p_optional, p_has_val, p_clear_val, p_default, p_validate.
+// available params: p_val, p_optional, p_has_val, p_clear_val, p_default, p_check.
 template<strlit Type, strlit Name, uint32_t Id, class Params>
 struct pb_varint_fld : pb_fld<Type, Name, Id, pb_wt_varint, pb_varint_fld<Type, Name, Id, Params>, Params>
 {
@@ -554,7 +582,7 @@ struct pb_varint_fld : pb_fld<Type, Name, Id, pb_wt_varint, pb_varint_fld<Type, 
     static_assert(! std::is_void_v<Tar>);
 
     static constexpr bool zigzag = (Type == "sint32" || Type == "sint64");
-    
+
     static_assert(! Params::has_get_mem
                && ! Params::has_act_mem
                && ! Params::has_act_mem_idx);
@@ -568,23 +596,9 @@ struct pb_varint_fld : pb_fld<Type, Name, Id, pb_wt_varint, pb_varint_fld<Type, 
     {}
 
     template<strlit RName, uint32_t RId>
-    constexpr auto rebind_name_id() const noexcept
+    constexpr auto rebind(auto&& params) const noexcept
     {
-        return pb_varint_fld<Type, RName, RId, Params>{*this};
-    }
-
-    template<strlit RName, uint32_t RId>
-    constexpr auto rebind_name_id_u(auto&& v) const noexcept
-    {
-        return pb_varint_fld<Type, RName, RId, decltype(Params::rebind_uval(v))>{Params::rebind_uval(v)};
-    }
-
-    // rebind_name_id_accessor
-    template<strlit RName, uint32_t RId>
-    constexpr auto _(auto&&... p) const& noexcept
-    {
-        return pb_varint_fld<Type, RName, RId, decltype(make_pb_params(JKL_FORWARD(p)...))>{
-                                                        make_pb_params(JKL_FORWARD(p)...)};
+        return pb_varint_fld<Type, RName, RId, JKL_DECL_NO_CVREF_T(params)>{JKL_FORWARD(params)};
     }
 
     _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
@@ -694,7 +708,7 @@ constexpr auto pb_sint64(auto&&... p) noexcept
 
 // wire fmt: tag | fixed size bytes in little-endian
 // expected value type: _arithmetic_
-// available params: p_val, p_optional, p_has_val, p_clear_val, p_default, p_validate.
+// available params: p_val, p_optional, p_has_val, p_clear_val, p_default, p_check.
 template<strlit Type, strlit Name, uint32_t Id, class Params>
 struct pb_fixed_fld : pb_fld<Type, Name, Id, (is_oneof(Type, "sfixed32", "fixed32", "float") ? pb_wt_fix32 : pb_wt_fix64),
                              pb_fixed_fld<Type, Name, Id, Params>, Params>
@@ -727,23 +741,9 @@ struct pb_fixed_fld : pb_fld<Type, Name, Id, (is_oneof(Type, "sfixed32", "fixed3
     {}
 
     template<strlit RName, uint32_t RId>
-    constexpr auto rebind_name_id() const noexcept
+    constexpr auto rebind(auto&& params) const noexcept
     {
-        return pb_fixed_fld<Type, RName, RId, Params>{*this};
-    }
-
-    template<strlit RName, uint32_t RId>
-    constexpr auto rebind_name_id_u(auto&& v) const noexcept
-    {
-        return pb_fixed_fld<Type, RName, RId, decltype(Params::rebind_uval(v))>{Params::rebind_uval(v)};
-    }
-
-    // rebind_name_id_accessor
-    template<strlit RName, uint32_t RId>
-    constexpr auto _(auto&&... p) const& noexcept
-    {
-        return pb_fixed_fld<Type, RName, RId, decltype(make_pb_params(JKL_FORWARD(p)...))>{
-                                                       make_pb_params(JKL_FORWARD(p)...)};
+        return pb_fixed_fld<Type, RName, RId, JKL_DECL_NO_CVREF_T(params)>{JKL_FORWARD(params)};
     }
 
     _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
@@ -850,7 +850,7 @@ constexpr auto pb_double(auto&&... p) noexcept
 
 // wire fmt: tag|len|bytes
 // expected value type: _buf_, _str_
-// available params: p_val, p_optional, p_has_val, p_clear_val, p_default, p_validate.
+// available params: p_val, p_optional, p_has_val, p_clear_val, p_default, p_check.
 // NOTE: you can use p_optional without using a std::optional<...> value,
 //       in that case, if value is fixed size(like array, read only range),
 //       you should specify p_clear_val, and p_has_val(if buf_size()/str_size() are not proper).
@@ -908,23 +908,9 @@ struct pb_bytes_fld : pb_fld<Type, Name, Id, pb_wt_len_dlm,
     {}
 
     template<strlit RName, uint32_t RId>
-    constexpr auto rebind_name_id() const noexcept
+    constexpr auto rebind(auto&& params) const noexcept
     {
-        return pb_bytes_fld<Type, RName, RId, Params>{*this};
-    }
-
-    template<strlit RName, uint32_t RId>
-    constexpr auto rebind_name_id_u(auto&& v) const noexcept
-    {
-        return pb_bytes_fld<Type, RName, RId, decltype(Params::rebind_uval(v))>{Params::rebind_uval(v)};
-    }
-
-    // rebind_name_id_accessor
-    template<strlit RName, uint32_t RId>
-    constexpr auto _(auto&&... p) const& noexcept
-    {
-        return pb_bytes_fld<Type, RName, RId, decltype(make_pb_params(JKL_FORWARD(p)...))>{
-                                                       make_pb_params(JKL_FORWARD(p)...)};
+        return pb_bytes_fld<Type, RName, RId, JKL_DECL_NO_CVREF_T(params)>{JKL_FORWARD(params)};
     }
 
     _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
@@ -947,7 +933,7 @@ struct pb_bytes_fld : pb_fld<Type, Name, Id, pb_wt_len_dlm,
         if(has_val(d))
         {
             auto const len = static_cast<pb_size_t>(buf_byte_size(as_buf(const_val(d))));
-            return base::len_dlm_wire_size<SkipTag, SkipLen>(len);
+            return base::template len_dlm_wire_size<SkipTag, SkipLen>(len);
         }
 
         return 0;
@@ -1026,15 +1012,15 @@ constexpr auto pb_string(auto&&... p) noexcept
 //      for scalar fld, always uses packed fmt: tag(fld.id, pb_wt_len_dlm) | len | encoded_scalars...
 //      for other repeated fld: fld | fld | ... | fld
 // expected value type: _range_
-// available params: p_val, p_clear_val, p_validate.
+// available params: p_val, p_clear_val, p_check.
 // NOTE: repeated cannot be optional or required;
 //       it uses fld's name and id.
-template<class Fld, class Params>
+template<class Fld, class Params, class Derived = void>
 struct pb_repeated_fld : pb_fld<"repeated " + Fld::f_type, Fld::f_name, Fld::f_id, pb_wt_len_dlm,
-                                 pb_repeated_fld<Fld, Params>, Params>
+                                std::conditional_t<std::is_void_v<Derived>, pb_repeated_fld<Fld, Params>, Derived>, Params>
 {
     using base = pb_fld<"repeated " + Fld::f_type, Fld::f_name, Fld::f_id, pb_wt_len_dlm,
-                        pb_repeated_fld<Fld, Params>, Params>;
+                        std::conditional_t<std::is_void_v<Derived>, pb_repeated_fld<Fld, Params>, Derived>, Params>;
 
     static constexpr auto fld_type      = Fld::f_type;
     static constexpr auto fld_wire_type = Fld::f_wire_type;
@@ -1103,25 +1089,10 @@ struct pb_repeated_fld : pb_fld<"repeated " + Fld::f_type, Fld::f_name, Fld::f_i
     constexpr auto const& elem_fld() const noexcept { return _fld; }
 
     template<strlit RName, uint32_t RId>
-    constexpr auto rebind_name_id() const noexcept
+    constexpr auto rebind(auto&& params) const noexcept
     {
-        return pb_repeated_fld<decltype(_fld.template rebind_name_id<RName, RId>()), Params>{
-                                        _fld.template rebind_name_id<RName, RId>(),  *this};
-    }
-
-    template<strlit RName, uint32_t RId>
-    constexpr auto rebind_name_id_u(auto&& v) const noexcept
-    {
-        return pb_repeated_fld<decltype(_fld.template rebind_name_id<RName, RId>()), decltype(Params::rebind_uval(v))>{
-                                        _fld.template rebind_name_id<RName, RId>(),           Params::rebind_uval(v)};
-    }
-
-    // rebind_name_id_accessor
-    template<strlit RName, uint32_t RId>
-    constexpr auto _(auto&&... p) const& noexcept
-    {
-        return pb_repeated_fld<decltype(_fld.template rebind_name_id<RName, RId>()), decltype(make_pb_params(JKL_FORWARD(p)...))>{
-                                        _fld.template rebind_name_id<RName, RId>(),           make_pb_params(JKL_FORWARD(p)...)};
+        return pb_repeated_fld<decltype(_fld.template rebind_name_id<RName, RId>()), JKL_DECL_NO_CVREF_T(params)>{
+                                        _fld.template rebind_name_id<RName, RId>() ,         JKL_FORWARD(params)};
     }
 
     template<_resizable_byte_buf_ S = string>
@@ -1176,7 +1147,7 @@ struct pb_repeated_fld : pb_fld<"repeated " + Fld::f_type, Fld::f_name, Fld::f_i
             if constexpr(! is_packed)
                 return pb_size_c<len>;
             else
-                return pb_size_c<(base::len_dlm_wire_size<SkipTag, SkipLen>(len))>;
+                return pb_size_c<(base::template len_dlm_wire_size<SkipTag, SkipLen>(len))>;
         }
         else
         {
@@ -1203,7 +1174,7 @@ struct pb_repeated_fld : pb_fld<"repeated " + Fld::f_type, Fld::f_name, Fld::f_i
             if constexpr(! is_packed)
                 return len;
             else
-                return base::len_dlm_wire_size<SkipTag, SkipLen>(len);
+                return base:: template len_dlm_wire_size<SkipTag, SkipLen>(len);
         }
     }
 
@@ -1412,7 +1383,7 @@ constexpr auto pb_repeated(auto&& fld, auto&&... p) noexcept
 
 // wire fmt: tag|len|sub_flds...
 // expected value type: struct/class
-// available params: p_val, p_optional, p_has_val, p_clear_val, p_default, p_validate.
+// available params: p_val, p_optional, p_has_val, p_clear_val, p_default, p_check.
 template<strlit Type, strlit Name, uint32_t Id, class Params, class... Flds>
 struct pb_message_fld : pb_fld<Type, Name, Id, pb_wt_len_dlm,
                                pb_message_fld<Type, Name, Id, Params, Flds...>, Params>
@@ -1448,24 +1419,9 @@ struct pb_message_fld : pb_fld<Type, Name, Id, pb_wt_len_dlm,
     constexpr auto const& sub_fld() const noexcept { return std::get<I>(_flds); }
 
     template<strlit RName, uint32_t RId>
-    constexpr auto rebind_name_id() const noexcept
+    constexpr auto rebind(auto&& params) const noexcept
     {
-        return pb_message_fld<Type, RName, RId, Params, Flds...>{*this, _flds};
-    }
-
-    template<strlit RName, uint32_t RId>
-    constexpr auto rebind_name_id_u(auto&& v) const noexcept
-    {
-        return pb_message_fld<Type, RName, RId, decltype(Params::rebind_uval(v)), Flds...>{
-                                                         Params::rebind_uval(v),  _flds};
-    }
-
-    // rebind_name_id_accessor
-    template<strlit RName, uint32_t RId>
-    constexpr auto _(auto&&... p) const& noexcept
-    {
-        return pb_message_fld<Type, RName, RId, decltype(make_pb_params(JKL_FORWARD(p)...)), Flds...>{
-                                                         make_pb_params(JKL_FORWARD(p)...),  _flds};
+        return pb_message_fld<Type, RName, RId, JKL_DECL_NO_CVREF_T(params), Flds...>{JKL_FORWARD(params), _flds};
     }
 
     template<_resizable_byte_buf_ S = string>
@@ -1478,7 +1434,7 @@ struct pb_message_fld : pb_fld<Type, Name, Id, pb_wt_len_dlm,
         std::apply(
             [&def](auto&... fld)
             {
-                (... , append_str(def, "    ", fld.fld_def<S>(), "\n"));
+                (... , append_str(def, "    ", fld.template fld_def<S>(), "\n"));
             },
             _flds);
 
@@ -1540,7 +1496,7 @@ struct pb_message_fld : pb_fld<Type, Name, Id, pb_wt_len_dlm,
 
         if constexpr(JKL_CEVL(is_static_len(d)))
         {
-            return pb_size_c<(base::len_dlm_wire_size<SkipTag, SkipLen>(JKL_CEVL(sub_flds_len(d, lc))))>;
+            return pb_size_c<(base::template len_dlm_wire_size<SkipTag, SkipLen>(JKL_CEVL(sub_flds_len(d, lc))))>;
         }
         else
         {
@@ -1548,14 +1504,14 @@ struct pb_message_fld : pb_fld<Type, Name, Id, pb_wt_len_dlm,
             {
                 if constexpr(SkipLen)
                 {
-                    return base::len_dlm_wire_size<SkipTag, SkipLen>(sub_flds_len(d, lc));
+                    return base:: template len_dlm_wire_size<SkipTag, SkipLen>(sub_flds_len(d, lc));
                 }
                 else
                 {
                     pb_size_t* lp = lc++;
                     pb_size_t const len = sub_flds_len(d, lc);
                     *lp = len;
-                    return base::len_dlm_wire_size<SkipTag, SkipLen>(len);
+                    return base:: template len_dlm_wire_size<SkipTag, SkipLen>(len);
                 }
             }
 
@@ -1690,7 +1646,7 @@ struct pb_message_fld : pb_fld<Type, Name, Id, pb_wt_len_dlm,
 
     static_assert(expended_fld_list_cnt == mp_size<expended_val_bits_map>::value);
 
-    // each element contains 2 idx, the first is Flds idx, second is injected fld idx.
+    // each element contains 2 idx, the first is Fld idx, second is injected fld idx.
 
     template<class V1>
     struct combine_with
@@ -1769,27 +1725,27 @@ struct pb_message_fld : pb_fld<Type, Name, Id, pb_wt_len_dlm,
     {
     #define _EXAM_SUB_FLD_CASE_CNT 32
     #define _EXAM_SUB_FLD_CASE(Z, N, D) \
-        if constexpr(I + N < sizeof...(Flds))              \
-        {                                                  \
-            auto& fld = std::get<I + N>(_flds);            \
-                                                           \
-            if(valBits.test(I + N))                        \
-            {                                              \
-                if constexpr(fld.has_validate)             \
-                {                                          \
-                    auto r = fld.validate(v);              \
-                    if(BOOST_UNLIKELY(! r))                \
-                        return r;                          \
-                }                                          \
-            }                                              \
-            else                                           \
-            {                                              \
-                if constexpr(fld.is_optional)              \
-                    fld.clear_val(v);                      \
-                else                                       \
-                    return pb_err::required_field_missing; \
-            }                                              \
-        }                                                  \
+        if constexpr(I + N < sizeof...(Flds))                           \
+        {                                                               \
+            auto& fld = std::get<I + N>(_flds);                         \
+                                                                        \
+            if(valBits.test(I + N))                                     \
+            {                                                           \
+                if constexpr(JKL_DECL_NO_CVREF_T(fld)::has_validate)    \
+                {                                                       \
+                    auto r = fld.validate(v);                           \
+                    if(BOOST_UNLIKELY(! r))                             \
+                        return r;                                       \
+                }                                                       \
+            }                                                           \
+            else                                                        \
+            {                                                           \
+                if constexpr(JKL_DECL_NO_CVREF_T(fld)::is_optional)     \
+                    fld.clear_val(v);                                   \
+                else                                                    \
+                    return pb_err::required_field_missing;              \
+            }                                                           \
+        }                                                               \
         /**/
 
         BOOST_PP_REPEAT(
@@ -1832,10 +1788,11 @@ constexpr auto pb_message(auto&&... flds) noexcept
 //       key_type can be any integral or string type (so, any scalar type except for floating point types and bytes).
 //       value_type can be any type except another map.
 template<strlit Name, uint32_t Id, class KeyFld, class ValueFld, class Params>
-struct pb_map_fld : pb_repeated_fld<pb_message_fld<Name + "_entry", Name, Id, pb_null_params, KeyFld, ValueFld>, Params>
+struct pb_map_fld : pb_repeated_fld<pb_message_fld<Name + "_entry", Name, Id, pb_null_params, KeyFld, ValueFld>, Params,
+                                    pb_map_fld<Name, Id, KeyFld, ValueFld, Params>>
 {
     using map_entry = pb_message_fld<Name + "_entry", Name, Id, pb_null_params, KeyFld, ValueFld>;
-    using base      = pb_repeated_fld<map_entry, Params>;
+    using base      = pb_repeated_fld<map_entry, Params, pb_map_fld<Name, Id, KeyFld, ValueFld, Params>>;
 
     static constexpr auto f_type = "map<" + KeyFld::f_type + ", " + ValueFld::f_type + ">";
 
@@ -1852,29 +1809,14 @@ struct pb_map_fld : pb_repeated_fld<pb_message_fld<Name + "_entry", Name, Id, pb
         : base{map_entry{pb_null_params{}, JKL_FORWARD(k), JKL_FORWARD(v)}, JKL_FORWARD(p)}
     {}
 
-    constexpr auto const&   key_field() const noexcept { return base::elem_fld().sub_fld<0>(); }
-    constexpr auto const& value_field() const noexcept { return base::elem_fld().sub_fld<1>(); }
+    constexpr auto const&   key_field() const noexcept { return base::elem_fld().template sub_fld<0>(); }
+    constexpr auto const& value_field() const noexcept { return base::elem_fld().template sub_fld<1>(); }
 
     template<strlit RName, uint32_t RId>
-    constexpr auto rebind_name_id() const noexcept
+    constexpr auto rebind(auto&& params) const noexcept
     {
-        return pb_map_fld<RName, RId, KeyFld,      ValueFld, Params>{
-                                 key_field(), value_field(), *this};
-    }
-
-    template<strlit RName, uint32_t RId>
-    constexpr auto rebind_name_id_u(auto&& v) const noexcept
-    {
-        return pb_map_fld<RName, RId, KeyFld,      ValueFld, decltype(Params::rebind_uval(v))>{
-                                 key_field(), value_field(),          Params::rebind_uval(v)};
-    }
-
-    // rebind_name_id_accessor
-    template<strlit RName, uint32_t RId>
-    constexpr auto _(auto&&... p) const& noexcept
-    {
-        return pb_map_fld<RName, RId, KeyFld,      ValueFld, decltype(make_pb_params(JKL_FORWARD(p)...))>{
-                                 key_field(), value_field(),          make_pb_params(JKL_FORWARD(p)...)};
+        return pb_map_fld<RName, RId,     KeyFld,       ValueFld, JKL_DECL_NO_CVREF_T(params)>{
+                                      key_field(), value_field(),         JKL_FORWARD(params)};
     }
 
     template<_resizable_byte_buf_ S = string>
@@ -1899,8 +1841,8 @@ constexpr auto pb_map(auto&& key, auto&& value, auto&&... p) noexcept
 
 // wire fmt: one of field's wire fmt
 // expected value type: std::variant or any type with p_get_member, p_activate_member, p_active_member_idx.
-// available params: p_val, p_get_member, p_activate_member, p_active_member_idx, p_validate.
-//      NOTE: p_validate on sub fields won't be used, you should validate oneof field itself.
+// available params: p_val, p_get_member, p_activate_member, p_active_member_idx, p_check.
+//      NOTE: p_check on sub fields won't be used, you should validate oneof field itself.
 // oneof is like anonymous union(but with name),
 // name and id of its fields should be unique in the enclosing message.
 // fields cannot be required, optional, or repeated, in such case you can wrap these fields in a message.
@@ -1932,8 +1874,8 @@ struct pb_oneof_fld : pb_fld<"oneof " + Name, "", 0, pb_wt_len_dlm,
     template<size_t I, _byte_ B>
     constexpr aresult<B const*> injected_fld_read(B const* beg, B const* end, auto& d) const noexcept
     {
-        Params::activate_member<I + 1>(d);
-        return std::get<I>(_flds).template read_impl<false>(beg, end, Params::get_member<I + 1>(d));
+        Params::template activate_member<I + 1>(d);
+        return std::get<I>(_flds).template read_impl<false>(beg, end, Params::template get_member<I + 1>(d));
     }
 
     // make sure all fields are valid for oneof
@@ -1962,7 +1904,7 @@ struct pb_oneof_fld : pb_fld<"oneof " + Name, "", 0, pb_wt_len_dlm,
         std::apply(
             [&def](auto&... fld)
             {
-                (... , append_as_str(def, "        ", fld.f_type, " ", fld.f_name, "=", fld.f_id, "\n"));
+                (... , append_as_str(def, "        ", fld.f_type, " ", fld.f_name, "=", fld.f_id, ";\n"));
             },
             _flds);
 
@@ -1976,22 +1918,25 @@ struct pb_oneof_fld : pb_fld<"oneof " + Name, "", 0, pb_wt_len_dlm,
     {
         BOOST_ASSERT(actIdx > 0);
 
-        if(BOOST_UNLIKELY(actIdx > sizeof...(Flds) + 1))
-            throw std::bad_variant_access{};
+        if constexpr(FldIdx == 0)
+        {
+            if(BOOST_UNLIKELY(actIdx > sizeof...(Flds) + 1))
+                throw std::bad_variant_access{};
+        }
 
     #define _VISIT_CASE_CNT 32
     #define _VISIT_CASE(Z, N, D) \
-        case FldIdx + N + 1:                                                                  \
-        {                                                                                     \
-            if constexpr(FldIdx + N < sizeof...(Flds))                                        \
-            {                                                                                 \
-                return f(std::get<FldIdx + N>(_flds), Params::get_member<FldIdx + N + 1>(d)); \
-            }                                                                                 \
-            else                                                                              \
-            {                                                                                 \
-                BOOST_UNREACHABLE_RETURN(f(std::get<0>(_flds), Params::get_member<1>(d)));    \
-            }                                                                                 \
-        }                                                                                     \
+        case FldIdx + N + 1:                                                                           \
+        {                                                                                              \
+            if constexpr(FldIdx + N < sizeof...(Flds))                                                 \
+            {                                                                                          \
+                return f(std::get<FldIdx + N>(_flds), Params::template get_member<FldIdx + N + 1>(d)); \
+            }                                                                                          \
+            else                                                                                       \
+            {                                                                                          \
+                BOOST_UNREACHABLE_RETURN(f(std::get<0>(_flds), Params::template get_member<1>(d)));    \
+            }                                                                                          \
+        }                                                                                              \
         /**/
 
         switch(actIdx)

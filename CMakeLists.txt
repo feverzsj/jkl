@@ -24,15 +24,15 @@ target_include_directories(${PROJECT_NAME}
   # the generator expressions are merely a string, which will be evaluated when build being generated, you can put multiple generator expressions in single string
 
 
-option($${PROJECT_NAME}_BUNDLE_certify "use bundled certify lib" ON)
-
-if(${PROJECT_NAME}_BUNDLE_certify)
-    target_include_directories(${PROJECT_NAME}
-        INTERFACE
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/bundled/certify>
-            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME}/bundled/certify>
-    )
-endif()
+# option($${PROJECT_NAME}_BUNDLE_certify "use bundled certify lib" ON)
+#
+# if(${PROJECT_NAME}_BUNDLE_certify)
+#     target_include_directories(${PROJECT_NAME}
+#         INTERFACE
+#             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/bundled/certify>
+#             $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME}/bundled/certify>
+#     )
+# endif()
 
 
 find_package(Boost 1.71.0 REQUIRED)# COMPONENTS asio beast uuid)

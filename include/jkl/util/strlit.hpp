@@ -68,13 +68,17 @@ struct strlit
     constexpr StrView subview(size_t pos = 0, size_t count = size_t(-1)) const
     {
         if(pos > size())
-            throw std::out_of_range{"invalid pos"};
+            throw std::out_of_range{"strlit::subview"};
         return {data() + pos, std::min(count, size() - pos)};
     }
 
     constexpr size_t copy(C* dest, size_t count, size_t pos = 0) const
     {
-        return subview(pos, count).copy(dest, count);
+        if(pos > size())
+            throw std::out_of_range("strlit::copy");
+        size_t len = std::min(count, size() - pos);
+        std::char_traits<C>::copy(dest, data() + pos, len);
+        return len;
     }
 
     _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
