@@ -161,6 +161,8 @@ Available parameters: `p_val`, `p_clear_val`, `p_check`.
 
 `ValueField` can be any field except another map.
 
+e.g.: `pb_map  <"mapMem", 1>(pb_int32(), pb_string(), JKL_P_VAL(d.mapMem))`
+
 ## pb_oneof<'Name'>(Fields...)(parameters...)
 Expected value type: `std::variant` or any type with `p_get_member`, `p_activate_member`, `p_active_member_idx`.
 

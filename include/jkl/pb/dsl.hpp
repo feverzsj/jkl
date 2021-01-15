@@ -591,8 +591,8 @@ struct pb_varint_fld : pb_fld<Type, Name, Id, pb_wt_varint, pb_varint_fld<Type, 
 
 
     _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
-    constexpr explicit pb_varint_fld(auto&& p)
-        : base{JKL_FORWARD(p)}
+    constexpr explicit pb_varint_fld(auto&& params)
+        : base{JKL_FORWARD(params)}
     {}
 
     template<strlit RName, uint32_t RId>
@@ -736,8 +736,8 @@ struct pb_fixed_fld : pb_fld<Type, Name, Id, (is_oneof(Type, "sfixed32", "fixed3
 
 
     _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
-    constexpr explicit pb_fixed_fld(auto&& p)
-        : base{JKL_FORWARD(p)}
+    constexpr explicit pb_fixed_fld(auto&& params)
+        : base{JKL_FORWARD(params)}
     {}
 
     template<strlit RName, uint32_t RId>
@@ -903,8 +903,8 @@ struct pb_bytes_fld : pb_fld<Type, Name, Id, pb_wt_len_dlm,
 
 
     _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
-    constexpr explicit pb_bytes_fld(auto&& p)
-        : base{JKL_FORWARD(p)}
+    constexpr explicit pb_bytes_fld(auto&& params)
+        : base{JKL_FORWARD(params)}
     {}
 
     template<strlit RName, uint32_t RId>
@@ -1082,8 +1082,8 @@ struct pb_repeated_fld : pb_fld<"repeated " + Fld::f_type, Fld::f_name, Fld::f_i
     Fld _fld;
 
     _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
-    constexpr explicit pb_repeated_fld(auto&& fld, auto&& p)
-        : base{JKL_FORWARD(p)}, _fld{JKL_FORWARD(fld)}
+    constexpr explicit pb_repeated_fld(auto&& fld, auto&& params)
+        : base{JKL_FORWARD(params)}, _fld{JKL_FORWARD(fld)}
     {}
 
     constexpr auto const& elem_fld() const noexcept { return _fld; }
@@ -1410,8 +1410,8 @@ struct pb_message_fld : pb_fld<Type, Name, Id, pb_wt_len_dlm,
     std::tuple<Flds...> _flds;
 
     _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
-    constexpr explicit pb_message_fld(auto&& p, auto&&... flds)
-        : base{JKL_FORWARD(p)}, _flds{JKL_FORWARD(flds)...}
+    constexpr explicit pb_message_fld(auto&& params, auto&&... flds)
+        : base{JKL_FORWARD(params)}, _flds{JKL_FORWARD(flds)...}
     {}
 
     constexpr auto const& sub_flds() const noexcept { return _flds; }
@@ -1805,8 +1805,8 @@ struct pb_map_fld : pb_repeated_fld<pb_message_fld<Name + "_entry", Name, Id, pb
 
 
     _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
-    constexpr explicit pb_map_fld(auto&& k, auto&& v, auto&& p)
-        : base{map_entry{pb_null_params{}, JKL_FORWARD(k), JKL_FORWARD(v)}, JKL_FORWARD(p)}
+    constexpr explicit pb_map_fld(auto&& k, auto&& v, auto&& params)
+        : base{map_entry{pb_null_params{}, JKL_FORWARD(k), JKL_FORWARD(v)}, JKL_FORWARD(params)}
     {}
 
     constexpr auto const&   key_field() const noexcept { return base::elem_fld().template sub_fld<0>(); }
@@ -1890,9 +1890,15 @@ struct pb_oneof_fld : pb_fld<"oneof " + Name, "", 0, pb_wt_len_dlm,
     std::tuple<Flds...> _flds;
 
     _JKL_MSVC_WORKAROUND_TEMPL_FUN_ABBR
-    constexpr explicit pb_oneof_fld(auto&& p, auto&&... flds)
-        : base{JKL_FORWARD(p)}, _flds{JKL_FORWARD(flds)...}
+    constexpr explicit pb_oneof_fld(auto&& params, auto&&... flds)
+        : base{JKL_FORWARD(params)}, _flds{JKL_FORWARD(flds)...}
     {}
+
+    template<strlit RName, uint32_t>
+    constexpr auto rebind(auto&& params) const noexcept
+    {
+        return pb_oneof_fld<RName, JKL_DECL_NO_CVREF_T(params), Flds...>{JKL_FORWARD(params), _flds};
+    }
 
     template<_resizable_byte_buf_ S = string>
     constexpr S fld_def() const
@@ -2001,10 +2007,8 @@ struct pb_oneof_fld : pb_fld<"oneof " + Name, "", 0, pb_wt_len_dlm,
 template<strlit Name>
 constexpr auto pb_oneof(auto&&... flds)
 {
-    return [&](auto&&... p){
-        return pb_oneof_fld<Name, decltype(make_pb_params(JKL_FORWARD(p)...)), JKL_DECL_NO_CVREF_T(JKL_FORWARD(flds))...>{
-                                           make_pb_params(JKL_FORWARD(p)...),                      JKL_FORWARD(flds)...};
-    };
+    return pb_oneof_fld<Name, pb_null_params, JKL_DECL_NO_CVREF_T(JKL_FORWARD(flds))...>{
+                              pb_null_params{},                   JKL_FORWARD(flds)...};
 }
 
 
